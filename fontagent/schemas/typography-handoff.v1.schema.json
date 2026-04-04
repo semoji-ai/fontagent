@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fontagent.local/schemas/typography-handoff.v1.schema.json",
+  "title": "FontAgent Typography Handoff v1",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "schema_name",
+    "schema_path",
+    "task",
+    "language",
+    "medium",
+    "surface",
+    "primary_role",
+    "tones",
+    "project_path",
+    "font_system",
+    "hints",
+    "guidance",
+    "license_notes",
+    "design_agent_handoff"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "typography-handoff.v1"
+    },
+    "schema_name": {
+      "const": "typography-handoff.v1"
+    },
+    "schema_path": {
+      "type": "string"
+    },
+    "task": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "use_case": {
+      "type": "string"
+    },
+    "medium": {
+      "type": "string"
+    },
+    "surface": {
+      "type": "string"
+    },
+    "primary_role": {
+      "type": "string"
+    },
+    "tones": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "project_path": {
+      "type": "string"
+    },
+    "font_system": {
+      "type": "object",
+      "required": [
+        "manifest_path",
+        "css_path",
+        "remotion_path",
+        "roles"
+      ],
+      "properties": {
+        "manifest_path": {
+          "type": "string"
+        },
+        "css_path": {
+          "type": "string"
+        },
+        "remotion_path": {
+          "type": "string"
+        },
+        "roles": {
+          "type": "object",
+          "required": [
+            "title",
+            "subtitle",
+            "body"
+          ],
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/roleSpec"
+            },
+            "subtitle": {
+              "$ref": "#/$defs/roleSpec"
+            },
+            "body": {
+              "$ref": "#/$defs/roleSpec"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "hints": {
+      "type": "object",
+      "required": [
+        "type_scale",
+        "contrast",
+        "ratio"
+      ],
+      "properties": {
+        "type_scale": {
+          "type": "object"
+        },
+        "contrast": {
+          "type": "object"
+        },
+        "ratio": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "license_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "design_agent_handoff": {
+      "type": "object",
+      "required": [
+        "medium",
+        "surface",
+        "primary_role",
+        "tones",
+        "recommended_layout_focus",
+        "collaboration_boundary",
+        "notes"
+      ],
+      "properties": {
+        "medium": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "primary_role": {
+          "type": "string"
+        },
+        "tones": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommended_layout_focus": {
+          "type": "string"
+        },
+        "collaboration_boundary": {
+          "type": "object",
+          "required": [
+            "font_agent_owns",
+            "design_agent_owns"
+          ],
+          "properties": {
+            "font_agent_owns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "design_agent_owns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "roleSpec": {
+      "type": "object",
+      "required": [
+        "font_id",
+        "family",
+        "source_site",
+        "license_summary",
+        "generic_family",
+        "defaults",
+        "tags",
+        "recommended_for",
+        "asset_path"
+      ],
+      "properties": {
+        "font_id": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "source_site": {
+          "type": "string"
+        },
+        "license_summary": {
+          "type": "string"
+        },
+        "generic_family": {
+          "type": "string"
+        },
+        "defaults": {
+          "type": "object"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommended_for": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "asset_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

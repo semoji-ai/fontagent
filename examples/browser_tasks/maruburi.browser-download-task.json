@@ -1,0 +1,18 @@
+{
+  "font_id": "maruburi",
+  "family": "MaruBuri",
+  "source_site": "noonnu",
+  "source_page_url": "https://noonnu.cc/",
+  "download_url": "",
+  "download_type": "manual_only",
+  "status": "manual_required",
+  "notes": [
+    "자동 해석이 어려워 수동 확인이 필요합니다."
+  ],
+  "instructions": [
+    "Open the source page in a browser-enabled worker.",
+    "Locate the final download button or redirect target.",
+    "Record the final direct file URL if possible.",
+    "Download the asset or return the extracted final link."
+  ]
+}

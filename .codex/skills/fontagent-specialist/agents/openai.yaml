@@ -1,0 +1,3 @@
+display_name: FontAgent Specialist
+short_description: Find, validate, install, and hand off fonts with FontAgent.
+default_prompt: Use FontAgent to recommend licensed fonts, install them into the target project, and generate a typography handoff when needed.

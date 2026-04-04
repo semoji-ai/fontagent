@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fontagent"
+version = "0.1.0"
+description = "AI-agent-friendly free font search, preview, install, and export toolkit"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+fontagent = "fontagent.cli:main"
+fontagent-mcp = "fontagent.mcp_server:main"

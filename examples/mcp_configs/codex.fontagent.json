@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "fontagent": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "fontagent.cli",
+        "--root",
+        "/Users/jleavens_macmini/Projects/fontagent",
+        "mcp"
+      ]
+    }
+  }
+}

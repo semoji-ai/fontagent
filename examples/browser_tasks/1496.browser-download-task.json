@@ -1,0 +1,19 @@
+{
+  "font_id": "1496",
+  "family": "눈누 기초고딕",
+  "source_site": "noonnu",
+  "source_page_url": "https://noonnu.cc/font_page/1496",
+  "download_url": "https://blog.naver.com/hp0/223612016464",
+  "download_type": "html_button",
+  "status": "browser_required",
+  "notes": [
+    "상세 페이지 또는 버튼 클릭 흐름이 필요합니다.",
+    "외부 다운로드 페이지에서 direct/zip 링크를 찾지 못했습니다."
+  ],
+  "instructions": [
+    "Open the source page in a browser-enabled worker.",
+    "Locate the final download button or redirect target.",
+    "Record the final direct file URL if possible.",
+    "Download the asset or return the extracted final link."
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "font_id": "maru-buri",
+  "family": "MaruBuri",
+  "source_site": "noonnu",
+  "source_page_url": "https://noonnu.cc/font_page/maru-buri",
+  "download_url": "https://cdn.example.com/fonts/maru-buri.zip",
+  "download_type": "zip_file",
+  "status": "resolved",
+  "notes": [
+    "자동 설치 가능한 다운로드 링크가 있습니다."
+  ],
+  "instructions": [
+    "Open the source page in a browser-enabled worker.",
+    "Locate the final download button or redirect target.",
+    "Record the final direct file URL if possible.",
+    "Download the asset or return the extracted final link."
+  ]
+}

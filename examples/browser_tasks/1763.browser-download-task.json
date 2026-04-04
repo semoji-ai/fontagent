@@ -1,0 +1,18 @@
+{
+  "font_id": "1763",
+  "family": "물마루",
+  "source_site": "noonnu",
+  "source_page_url": "https://noonnu.cc/font_page/1763",
+  "download_url": "https://github.com/mushsooni/mulmaru/releases/latest/download/Mulmaru.zip",
+  "download_type": "zip_file",
+  "status": "resolved",
+  "notes": [
+    "외부 다운로드 페이지에서 자동 설치 가능한 링크를 찾았습니다."
+  ],
+  "instructions": [
+    "Open the source page in a browser-enabled worker.",
+    "Locate the final download button or redirect target.",
+    "Record the final direct file URL if possible.",
+    "Download the asset or return the extracted final link."
+  ]
+}
