@@ -53,6 +53,9 @@ class FontAgentMCPTests(unittest.TestCase):
         self.assertIn("bootstrap_project_integration", tool_names)
         self.assertIn("guided_interview_recommend", tool_names)
         self.assertIn("generate_typography_handoff", tool_names)
+        self.assertIn("list_reference_packs", tool_names)
+        self.assertIn("add_reference_review", tool_names)
+        self.assertIn("list_reference_reviews", tool_names)
         self.assertIn("search_fonts", tool_names)
 
     def test_get_catalog_status_tool_returns_totals(self) -> None:
@@ -199,6 +202,41 @@ class FontAgentMCPTests(unittest.TestCase):
         self.assertNotIn("canvas", result)
         self.assertNotIn("font_system_preview", result)
         self.assertTrue(result["results"])
+
+    def test_add_reference_review_tool_stores_review(self) -> None:
+        app = FontAgentMCPApplication(self._make_root())
+        created = app.service.add_reference(
+            title="MCP Review Target",
+            medium="video",
+            surface="thumbnail",
+            role="title",
+            source_kind="image_asset",
+            status="curated",
+        )
+        response = app.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {
+                    "name": "add_reference_review",
+                    "arguments": {
+                        "reference_id": created["reference_id"],
+                        "reviewer_kind": "agent_vision",
+                        "reviewer_name": "codex",
+                        "candidate_font_ids": ["goodchoice-yg-jalnan"],
+                        "observed_font_labels": ["playful display"],
+                        "confidence": 0.88,
+                        "apply_to_reference": True,
+                    },
+                },
+            }
+        )
+
+        result = response["result"]["structuredContent"]
+        self.assertEqual(result["review"]["reviewer_name"], "codex")
+        listed = app.service.list_reference_reviews(reference_id=created["reference_id"])
+        self.assertEqual(len(listed["reviews"]), 1)
 
 
 if __name__ == "__main__":

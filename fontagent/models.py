@@ -46,3 +46,47 @@ class FontCandidate:
     status: str
     discovered_at: str
     note: str
+
+
+@dataclass
+class FontReference:
+    reference_id: str
+    title: str
+    medium: str
+    surface: str
+    role: str
+    source_kind: str
+    source_url: str
+    asset_path: str
+    tones: list[str]
+    languages: list[str]
+    text_blocks: list[str]
+    candidate_font_ids: list[str]
+    observed_font_labels: list[str]
+    palette: dict
+    ratio_hint: dict
+    extraction_method: str
+    extraction_confidence: float
+    status: str
+    notes: list[str]
+    created_at: str
+    reference_class: str = "specimen"
+    reference_scope: str = "shared_public"
+
+
+@dataclass
+class FontReferenceReview:
+    review_id: str
+    reference_id: str
+    reviewer_kind: str
+    reviewer_name: str
+    model_name: str
+    source: str
+    summary: str
+    candidate_font_ids: list[str]
+    observed_font_labels: list[str]
+    cohort_tags: list[str]
+    confidence: float
+    status: str
+    notes: list[str]
+    created_at: str

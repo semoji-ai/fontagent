@@ -493,13 +493,13 @@ def _parse_gongu_license(license_text: str) -> tuple[str, bool, bool, bool, bool
     cleaned = _clean(license_text)
     if "OFL" in cleaned:
         return "ofl", True, True, True, True
-    if "제1유형" in cleaned:
+    if any(token in cleaned for token in ("제1유형", "1유형", "1 유형")):
         return "kogl-type1", True, True, True, False
-    if "제2유형" in cleaned or "상업적이용금지" in cleaned or "상업적 이용금지" in cleaned:
+    if any(token in cleaned for token in ("제2유형", "2유형", "2 유형")) or "상업적이용금지" in cleaned or "상업적 이용금지" in cleaned:
         return "kogl-type2", False, False, False, False
-    if "제3유형" in cleaned or "변경금지" in cleaned:
+    if any(token in cleaned for token in ("제3유형", "3유형", "3 유형")) or "변경금지" in cleaned:
         return "kogl-type3", True, True, False, False
-    if "제4유형" in cleaned:
+    if any(token in cleaned for token in ("제4유형", "4유형", "4 유형")):
         return "kogl-type4", False, False, False, False
     return "gongu-license", False, False, False, False
 

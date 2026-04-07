@@ -76,6 +76,76 @@ INTERVIEW_CATALOG = {
                     ],
                 },
             },
+            "subtitle_track": {
+                "label": "자막",
+                "medium": "video",
+                "surface": "subtitle_track",
+                "role": "subtitle",
+                "tones": ["readable", "sans"],
+                "questions": [
+                    {
+                        "id": "tone",
+                        "label": "자막 톤은 어느 쪽인가요?",
+                        "default": "neutral",
+                        "options": [
+                            {"value": "neutral", "label": "가장 무난하고 잘 읽히게", "tones": ["readable", "neutral", "sans"], "background_mode": "subtitle-safe"},
+                            {"value": "documentary", "label": "다큐 / 차분한 정보형", "tones": ["readable", "documentary", "sans"], "background_mode": "subtitle-safe"},
+                            {"value": "modern", "label": "모던 / 프로덕트 느낌", "tones": ["clean", "system", "sans"], "background_mode": "subtitle-safe"},
+                        ],
+                    },
+                    {
+                        "id": "density",
+                        "label": "자막 정보량은 어느 쪽인가요?",
+                        "default": "balanced",
+                        "options": [
+                            {"value": "compact", "label": "짧고 빠른 자막", "copy_mode": "compact"},
+                            {"value": "balanced", "label": "한 줄 설명형", "copy_mode": "balanced"},
+                        ],
+                    },
+                    {
+                        "id": "language_mix",
+                        "label": "언어 구성은 어떤가요?",
+                        "default": "ko",
+                        "options": [
+                            {"value": "ko", "label": "한글 중심", "languages": ["ko"]},
+                            {"value": "ko-en", "label": "한글 + 영문 혼합", "languages": ["ko", "en"], "tones": ["bilingual"]},
+                            {"value": "en", "label": "영문 중심", "languages": ["en"]},
+                        ],
+                    },
+                    {
+                        "id": "license_mode",
+                        "label": "사용 조건은 어떤가요?",
+                        "default": "monetized",
+                        "options": [
+                            {"value": "monetized", "label": "상업 영상 / 수익화", "constraints": {"commercial_use": True, "video_use": True}},
+                            {"value": "platform", "label": "웹 배포도 함께", "constraints": {"commercial_use": True, "video_use": True, "web_embedding": True}},
+                        ],
+                    },
+                ],
+                "copy_variants": {
+                    "compact": {
+                        "kicker": "SUBTITLE SYSTEM",
+                        "title": "지금 가장 중요한 건 가독성입니다",
+                        "subtitle": "짧고 빠르게 읽히는 자막 구조",
+                        "body": "자막은 표현보다 안정적인 리듬이 먼저여야 합니다.",
+                    },
+                    "balanced": {
+                        "kicker": "READABLE TYPE",
+                        "title": "설명형 자막은 제목보다 읽힘이 우선입니다",
+                        "subtitle": "정보형 자막은 neutral sans가 가장 오래 버팁니다",
+                        "body": "line-height와 자간을 과하게 흔들지 않고, 한 줄 폭을 통제하는 것이 핵심입니다.",
+                    },
+                },
+                "canvas": {
+                    "layout_mode": "subtitle-band",
+                    "background_mode": "subtitle-safe",
+                    "ratio_hint": "16:9",
+                    "notes": [
+                        "자막은 화면 하단 안전 영역을 우선 확보해야 합니다.",
+                        "title용 display 폰트보다 neutral sans가 먼저 올라오도록 설계합니다.",
+                    ],
+                },
+            },
             "opener_title": {
                 "label": "오프닝 타이틀",
                 "medium": "video",

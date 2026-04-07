@@ -53,6 +53,8 @@ def guess_generic_family(tags: list[str]) -> str:
     corpus = " ".join(tags).lower()
     if any(token in corpus for token in ("mono", "monospace", "code", "코드", "픽셀", "pixel", "게임", "game")):
         return "monospace"
+    if any(token in corpus for token in ("sans", "고딕", "grotesk", "neo-grotesk", "ui")):
+        return "sans-serif"
     if any(token in corpus for token in ("serif", "editorial", "명조", "바탕", "책 서체")):
         return "serif"
     return "sans-serif"

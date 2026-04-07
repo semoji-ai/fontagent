@@ -4,6 +4,9 @@ __pycache__/
 
 .cache/
 .tools/
+.claude/
+.fontagent/reference-learning.json
+.fontagent/reference_private_vault/
 
 fontagent.db
 fontagent.db.pre_live_validation.bak

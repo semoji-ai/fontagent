@@ -162,6 +162,48 @@ class FontAgentMCPApplication:
                 "inputSchema": {"type": "object", "properties": {}},
             },
             {
+                "name": "list_reference_packs",
+                "title": "List Reference Packs",
+                "description": "초기 레퍼런스 학습용 starter pack 목록을 반환합니다.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "add_reference_review",
+                "title": "Add Reference Review",
+                "description": "에이전트/비전 모델이 분석한 레퍼런스 리뷰를 저장하고, 필요하면 원본 레퍼런스 후보군에도 반영합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "reference_id": {"type": "string"},
+                        "reviewer_kind": {"type": "string"},
+                        "reviewer_name": {"type": "string"},
+                        "model_name": {"type": "string"},
+                        "source": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "candidate_font_ids": {"type": "array", "items": {"type": "string"}},
+                        "observed_font_labels": {"type": "array", "items": {"type": "string"}},
+                        "cohort_tags": {"type": "array", "items": {"type": "string"}},
+                        "confidence": {"type": "number"},
+                        "status": {"type": "string"},
+                        "notes": {"type": "array", "items": {"type": "string"}},
+                        "apply_to_reference": {"type": "boolean"},
+                    },
+                    "required": ["reference_id", "reviewer_kind", "reviewer_name"],
+                },
+            },
+            {
+                "name": "list_reference_reviews",
+                "title": "List Reference Reviews",
+                "description": "저장된 레퍼런스 리뷰를 reference_id별로 반환합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "reference_id": {"type": "string"},
+                        "status": {"type": "string"},
+                    },
+                },
+            },
+            {
                 "name": "install_font",
                 "title": "Install Font",
                 "description": "특정 폰트를 지정 경로에 설치합니다.",
@@ -336,6 +378,29 @@ class FontAgentMCPApplication:
             return self.service.list_use_cases()
         if name == "list_interview_catalog":
             return self.service.list_interview_catalog()
+        if name == "list_reference_packs":
+            return self.service.list_reference_packs()
+        if name == "add_reference_review":
+            return self.service.add_reference_review(
+                reference_id=arguments.get("reference_id", ""),
+                reviewer_kind=arguments.get("reviewer_kind", ""),
+                reviewer_name=arguments.get("reviewer_name", ""),
+                model_name=arguments.get("model_name", ""),
+                source=arguments.get("source", ""),
+                summary=arguments.get("summary", ""),
+                candidate_font_ids=arguments.get("candidate_font_ids"),
+                observed_font_labels=arguments.get("observed_font_labels"),
+                cohort_tags=arguments.get("cohort_tags"),
+                confidence=float(arguments.get("confidence", 0.0)),
+                status=arguments.get("status", "curated"),
+                notes=arguments.get("notes"),
+                apply_to_reference=bool(arguments.get("apply_to_reference", True)),
+            )
+        if name == "list_reference_reviews":
+            return self.service.list_reference_reviews(
+                reference_id=arguments.get("reference_id"),
+                status=arguments.get("status"),
+            )
         if name == "install_font":
             return self.service.install(
                 arguments["font_id"],

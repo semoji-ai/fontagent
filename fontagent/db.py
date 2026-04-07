@@ -47,6 +47,49 @@ CREATE TABLE IF NOT EXISTS font_candidates (
     discovered_at TEXT NOT NULL,
     note TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS font_references (
+    reference_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    medium TEXT NOT NULL,
+    surface TEXT NOT NULL,
+    role TEXT NOT NULL,
+    reference_class TEXT NOT NULL DEFAULT 'specimen',
+    source_kind TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '',
+    asset_path TEXT NOT NULL DEFAULT '',
+    tones_json TEXT NOT NULL,
+    languages_json TEXT NOT NULL,
+    text_blocks_json TEXT NOT NULL,
+    candidate_font_ids_json TEXT NOT NULL,
+    observed_font_labels_json TEXT NOT NULL,
+    palette_json TEXT NOT NULL,
+    ratio_hint_json TEXT NOT NULL,
+    extraction_method TEXT NOT NULL DEFAULT 'manual',
+    extraction_confidence REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
+    notes_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    reference_scope TEXT NOT NULL DEFAULT 'shared_public'
+);
+
+CREATE TABLE IF NOT EXISTS font_reference_reviews (
+    review_id TEXT PRIMARY KEY,
+    reference_id TEXT NOT NULL,
+    reviewer_kind TEXT NOT NULL,
+    reviewer_name TEXT NOT NULL,
+    model_name TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    candidate_font_ids_json TEXT NOT NULL,
+    observed_font_labels_json TEXT NOT NULL,
+    cohort_tags_json TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
+    notes_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(reference_id) REFERENCES font_references(reference_id)
+);
 """
 
 MIGRATIONS = {
@@ -55,6 +98,11 @@ MIGRATIONS = {
     "verified_at": "ALTER TABLE fonts ADD COLUMN verified_at TEXT NOT NULL DEFAULT ''",
     "installed_file_count": "ALTER TABLE fonts ADD COLUMN installed_file_count INTEGER NOT NULL DEFAULT 0",
     "verification_failure_reason": "ALTER TABLE fonts ADD COLUMN verification_failure_reason TEXT NOT NULL DEFAULT ''",
+}
+
+REFERENCE_MIGRATIONS = {
+    "reference_class": "ALTER TABLE font_references ADD COLUMN reference_class TEXT NOT NULL DEFAULT 'specimen'",
+    "reference_scope": "ALTER TABLE font_references ADD COLUMN reference_scope TEXT NOT NULL DEFAULT 'shared_public'",
 }
 
 
@@ -74,5 +122,12 @@ def initialize(db_path: Path) -> None:
         }
         for column, statement in MIGRATIONS.items():
             if column not in existing_columns:
+                conn.execute(statement)
+        existing_reference_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(font_references)").fetchall()
+        }
+        for column, statement in REFERENCE_MIGRATIONS.items():
+            if column not in existing_reference_columns:
                 conn.execute(statement)
         conn.commit()

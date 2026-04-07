@@ -240,6 +240,875 @@ class FontAgentServiceTests(unittest.TestCase):
             self.assertEqual(result["results"][0]["font_id"], "web-allowed")
             self.assertIn("매체/표면/역할 기준", " ".join(result["results"][0]["why"]))
 
+    def test_recommend_use_case_uses_reference_signal_to_boost_matching_font(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "reference-target",
+                        "family": "Reference Target",
+                        "slug": "reference-target",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "thumbnail", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/target.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "reference-other",
+                        "family": "Reference Other",
+                        "slug": "reference-other",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "thumbnail", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/other.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.add_reference(
+                title="Thumbnail Reference",
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                source_kind="image_asset",
+                asset_path="",
+                tones=["quirky"],
+                languages=["ko"],
+                candidate_font_ids=["reference-target"],
+                extraction_method="manual",
+                extraction_confidence=1.0,
+                status="curated",
+            )
+
+            result = service.recommend_use_case(
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                tones=["quirky"],
+                languages=["ko"],
+                constraints={"commercial_use": True, "video_use": True},
+                count=2,
+                detail_level="compact",
+            )
+
+            self.assertEqual(result["results"][0]["font_id"], "reference-target")
+            self.assertGreater(result["results"][0]["reference_signal"]["score"], 0)
+
+    def test_recommend_use_case_market_reference_outweighs_specimen_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "market-target",
+                        "family": "Market Target",
+                        "slug": "market-target",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["en"],
+                        "tags": ["display", "poster", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/market.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "specimen-target",
+                        "family": "Specimen Target",
+                        "slug": "specimen-target",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["en"],
+                        "tags": ["display", "poster", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/specimen.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.add_reference(
+                title="Market Poster Reference",
+                medium="print",
+                surface="poster_hero",
+                role="title",
+                reference_class="market",
+                source_kind="web_page",
+                source_url="https://www.behance.net/example",
+                tones=["poster", "editorial"],
+                languages=["en"],
+                candidate_font_ids=["market-target"],
+                extraction_method="manual",
+                extraction_confidence=1.0,
+                status="curated",
+            )
+            service.add_reference(
+                title="Specimen Poster Reference",
+                medium="print",
+                surface="poster_hero",
+                role="title",
+                reference_class="specimen",
+                source_kind="web_page",
+                source_url="https://fonts.example/specimen",
+                tones=["poster", "editorial"],
+                languages=["en"],
+                candidate_font_ids=["specimen-target"],
+                extraction_method="manual",
+                extraction_confidence=1.0,
+                status="curated",
+            )
+
+            result = service.recommend_use_case(
+                medium="print",
+                surface="poster_hero",
+                role="title",
+                tones=["poster", "editorial"],
+                languages=["en"],
+                constraints={"commercial_use": True},
+                count=2,
+                detail_level="compact",
+            )
+
+            self.assertEqual(result["results"][0]["font_id"], "market-target")
+            self.assertEqual(result["results"][0]["reference_signal"]["top_matches"][0]["reference_class"], "market")
+
+    def test_recommend_use_case_cohort_prevents_neutral_font_from_overriding_playful_title(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "neutral-ui",
+                        "family": "Neutral UI",
+                        "slug": "neutral-ui",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["modern", "clean", "ui", "subtitle", "sans"],
+                        "recommended_for": ["subtitle", "body", "ui"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/neutral.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "playful-display",
+                        "family": "Playful Display",
+                        "slug": "playful-display",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "playful", "thumbnail", "title", "poster"],
+                        "recommended_for": ["title", "thumbnail"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/playful.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.add_reference(
+                title="Quirky Thumbnail Ref",
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                source_kind="image_asset",
+                asset_path="",
+                tones=["quirky"],
+                languages=["ko"],
+                candidate_font_ids=["neutral-ui"],
+                extraction_method="manual",
+                extraction_confidence=1.0,
+                status="curated",
+            )
+
+            result = service.recommend_use_case(
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                tones=["quirky"],
+                languages=["ko"],
+                constraints={"commercial_use": True, "video_use": True},
+                count=2,
+                detail_level="compact",
+            )
+
+            self.assertEqual(result["results"][0]["font_id"], "playful-display")
+            self.assertEqual(result["results"][0]["cohort_profile"]["fit"], "preferred")
+            self.assertIn(result["results"][1]["cohort_profile"]["fit"], {"acceptable", "neutral"})
+
+    def test_recommend_use_case_subtitle_prefers_neutral_over_display(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "subtitle-neutral",
+                        "family": "Subtitle Neutral",
+                        "slug": "subtitle-neutral",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["sans", "subtitle", "readable", "고딕", "문서용"],
+                        "recommended_for": ["subtitle", "body"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/subtitle.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "subtitle-display",
+                        "family": "Poster Burst",
+                        "slug": "subtitle-display",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "poster", "thumbnail", "playful"],
+                        "recommended_for": ["title", "thumbnail"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/display.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            result = service.recommend_use_case(
+                medium="video",
+                surface="subtitle_track",
+                role="subtitle",
+                tones=["readable"],
+                languages=["ko"],
+                constraints={"commercial_use": True, "video_use": True},
+                count=2,
+                detail_level="compact",
+            )
+
+            self.assertEqual(result["results"][0]["font_id"], "subtitle-neutral")
+            self.assertEqual(result["results"][0]["cohort_profile"]["fit"], "preferred")
+            self.assertEqual(result["results"][1]["cohort_profile"]["fit"], "avoid")
+
+    def test_add_and_list_references(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            created = service.add_reference(
+                title="브랜드 랜딩 히어로 레퍼런스",
+                medium="web",
+                surface="landing_hero",
+                role="title",
+                source_kind="web_page",
+                source_url="https://example.com/landing",
+                tones=["editorial", "luxury"],
+                languages=["ko", "en"],
+                text_blocks=["브랜드의 첫인상은 타이포그래피에서 시작됩니다"],
+                candidate_font_ids=["pretendard"],
+                observed_font_labels=["high-contrast serif heading"],
+                extraction_method="manual",
+                extraction_confidence=0.8,
+                status="curated",
+                notes=["hero title 기준으로 저장"],
+            )
+
+            listed = service.list_references(medium="web", surface="landing_hero")
+
+            self.assertEqual(created["medium"], "web")
+            self.assertEqual(len(listed["references"]), 1)
+            self.assertEqual(listed["references"][0]["title"], "브랜드 랜딩 히어로 레퍼런스")
+            self.assertEqual(listed["references"][0]["status"], "curated")
+
+    def test_reference_extraction_strategies_prefers_playwright_for_web(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            web_plan = service.reference_extraction_strategies(
+                source_kind="web_page",
+                source_url="https://example.com/poster",
+            )
+            image_plan = service.reference_extraction_strategies(
+                source_kind="image",
+                asset_path="/tmp/reference.png",
+            )
+
+            self.assertEqual(web_plan["strategies"][0]["stage"], "playwright_dom")
+            self.assertEqual(image_plan["strategies"][0]["stage"], "ocr")
+
+    def test_extract_web_reference_stores_reference_and_exports_obsidian_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            screenshot = root / "fake-shot.png"
+            screenshot.write_text("fake", encoding="utf-8")
+            extract_json = root / "fake-extract.json"
+            extract_json.write_text(json.dumps({"ok": True}, ensure_ascii=False), encoding="utf-8")
+            service = FontAgentService(root)
+            service.init()
+
+            with mock.patch(
+                "fontagent.service.extract_web_reference_payload",
+                return_value={
+                    "title": "Reference Page",
+                    "url": "https://example.com",
+                    "textBlocks": [
+                        {"text": "Future of Typography", "fontFamily": "Demo Serif"},
+                        {"text": "Readable supporting copy", "fontFamily": "Demo Sans"},
+                    ],
+                    "uniqueFonts": ["Demo Serif", "Demo Sans"],
+                    "json_path": str(extract_json),
+                    "screenshot_path": str(screenshot),
+                },
+            ):
+                result = service.extract_web_reference(
+                    title="Reference Page",
+                    url="https://example.com",
+                    medium="web",
+                    surface="landing_hero",
+                    role="title",
+                    tones=["editorial"],
+                    languages=["en"],
+                    vault_root=root / "vault",
+                    vault_category="Fonts",
+                    status="curated",
+                )
+
+            note_path = Path(result["vault_export"]["note_path"])
+            self.assertTrue(note_path.exists())
+            self.assertIn("Reference Page", note_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["vault_export"]["screenshot_path"], "")
+            self.assertTrue(result["vault_export"]["private_screenshot_path"])
+            listed = service.list_references(medium="web", surface="landing_hero")
+            self.assertEqual(len(listed["references"]), 1)
+            self.assertEqual(listed["references"][0]["observed_font_labels"], ["Demo Serif", "Demo Sans"])
+
+    def test_extract_image_reference_stores_reference_and_exports_obsidian_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            asset_path = root / "reference.png"
+            asset_path.write_bytes(b"fake-image")
+            service = FontAgentService(root)
+            service.init()
+
+            with mock.patch(
+                "fontagent.service.extract_image_reference_payload",
+                return_value={
+                    "title": "Poster Reference",
+                    "width": 1280,
+                    "height": 720,
+                    "ratio": 1.777,
+                    "textBlocks": [
+                        {"text": "HELLO POSTER", "confidence": 0.98, "bounds": {"x": 10, "y": 10, "width": 200, "height": 80}}
+                    ],
+                    "json_path": str(root / "extract.json"),
+                    "screenshot_path": str(asset_path),
+                },
+            ):
+                (root / "extract.json").write_text("{}", encoding="utf-8")
+                result = service.extract_image_reference(
+                    title="Poster Reference",
+                    image_path=asset_path,
+                    medium="print",
+                    surface="poster_hero",
+                    role="title",
+                    tones=["poster"],
+                    languages=["en"],
+                    vault_root=root / "vault",
+                    vault_category="Fonts",
+                    status="curated",
+                )
+
+            note_path = Path(result["vault_export"]["note_path"])
+            self.assertTrue(note_path.exists())
+            listed = service.list_references(medium="print", surface="poster_hero")
+            self.assertEqual(len(listed["references"]), 1)
+            self.assertEqual(listed["references"][0]["extraction_method"], "apple_vision_ocr")
+
+    def test_extract_image_reference_applies_vision_guess_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            asset_path = root / "reference.png"
+            asset_path.write_bytes(b"fake-image")
+            service = FontAgentService(root)
+            service.init()
+
+            with mock.patch(
+                "fontagent.service.extract_image_reference_payload",
+                return_value={
+                    "title": "Poster Reference",
+                    "width": 1280,
+                    "height": 720,
+                    "ratio": 1.777,
+                    "textBlocks": [{"text": "잘난체", "confidence": 0.98, "bounds": {"x": 10, "y": 10}}],
+                    "json_path": str(root / "extract.json"),
+                    "screenshot_path": str(asset_path),
+                },
+            ), mock.patch(
+                "fontagent.service.guess_reference_fonts_via_vision",
+                return_value={
+                    "used": True,
+                    "available": True,
+                    "reason": "ok",
+                    "candidate_font_ids": ["goodchoice-yg-jalnan", "cafe24-supermagic-bold"],
+                    "observed_font_labels": ["playful rounded display"],
+                    "confidence": 0.91,
+                    "reasoning": ["headline looks like playful brand display"],
+                },
+            ):
+                (root / "extract.json").write_text("{}", encoding="utf-8")
+                result = service.extract_image_reference(
+                    title="Poster Reference",
+                    image_path=asset_path,
+                    medium="print",
+                    surface="poster_hero",
+                    role="title",
+                    tones=["poster"],
+                    languages=["ko"],
+                    vault_root=root / "vault",
+                    vault_category="Fonts",
+                    status="curated",
+                )
+
+            listed = service.list_references(medium="print", surface="poster_hero")
+            self.assertEqual(len(listed["references"]), 1)
+            self.assertTrue(result["vision_guess"]["used"])
+            self.assertEqual(listed["references"][0]["candidate_font_ids"][0], "goodchoice-yg-jalnan")
+            self.assertEqual(listed["references"][0]["observed_font_labels"], ["playful rounded display"])
+            self.assertEqual(listed["references"][0]["extraction_method"], "apple_vision_ocr+openai_vision")
+
+    def test_reference_settings_and_index_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            saved = service.save_reference_settings(
+                vault_root=str(root / "vault"),
+                vault_category="Fonts",
+                asset_policy="public_metadata_only",
+                private_vault_root=str(root / "private-vault"),
+            )
+            self.assertTrue(Path(saved["settings_path"]).exists())
+            self.assertEqual(service.get_reference_settings()["vault_category"], "Fonts")
+            self.assertEqual(service.get_reference_settings()["asset_policy"], "public_metadata_only")
+
+            service.add_reference(
+                title="Reference Index Test",
+                medium="web",
+                surface="landing_hero",
+                role="title",
+                source_kind="web_page",
+                source_url="https://example.com",
+                status="curated",
+            )
+
+            index_payload = service.sync_reference_index()
+            index_path = Path(index_payload["index_path"])
+            self.assertTrue(index_path.exists())
+            self.assertIn("Reference Index Test", index_path.read_text(encoding="utf-8"))
+
+    def test_add_reference_review_updates_reference_and_exports_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "goodchoice-yg-jalnan",
+                        "family": "여기어때 잘난체",
+                        "slug": "yg-jalnan",
+                        "source_site": "goodchoice_brand",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/yg-jalnan.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    }
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.save_reference_settings(vault_root=str(root / "vault"), vault_category="Fonts")
+
+            created = service.add_reference(
+                title="Review Target",
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                source_kind="image_asset",
+                asset_path="",
+                tones=["quirky"],
+                languages=["ko"],
+                status="curated",
+            )
+            review_result = service.add_reference_review(
+                reference_id=created["reference_id"],
+                reviewer_kind="agent_vision",
+                reviewer_name="claude",
+                model_name="vision-demo",
+                summary="동글고 장난스러운 display 계열",
+                candidate_font_ids=["goodchoice-yg-jalnan", "pretendard"],
+                observed_font_labels=["quirky rounded display"],
+                cohort_tags=["display_playful"],
+                confidence=0.91,
+                notes=["썸네일 제목에 적합"],
+                apply_to_reference=True,
+            )
+
+            listed_reviews = service.list_reference_reviews(reference_id=created["reference_id"])
+            self.assertEqual(len(listed_reviews["reviews"]), 1)
+            self.assertEqual(listed_reviews["reviews"][0]["reviewer_name"], "claude")
+            listed = service.list_references(medium="video", surface="thumbnail")
+            self.assertEqual(listed["references"][0]["candidate_font_ids"][0], "goodchoice-yg-jalnan")
+            self.assertEqual(listed["references"][0]["candidate_font_ids"][1], "pretendard")
+            self.assertEqual(listed["references"][0]["observed_font_labels"], ["quirky rounded display"])
+            self.assertTrue(review_result["vault_export"])
+            note_path = Path(review_result["vault_export"]["note_path"])
+            self.assertTrue(note_path.exists())
+            note_text = note_path.read_text(encoding="utf-8")
+            self.assertIn("## Agent Reviews", note_text)
+            self.assertIn("claude", note_text)
+            self.assertTrue(review_result["vault_export"]["private_review_paths"])
+
+    def test_refresh_reference_candidates_backfills_candidate_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "goodchoice-yg-jalnan",
+                        "family": "여기어때 잘난체",
+                        "slug": "yg-jalnan",
+                        "source_site": "goodchoice_brand",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display", "title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "direct_file",
+                        "download_url": "file://fixture/yg-jalnan.ttf",
+                        "download_source": "canonical",
+                        "format": "ttf",
+                        "variable_font": False,
+                    }
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.add_reference(
+                title="Goodchoice Reference",
+                medium="web",
+                surface="landing_hero",
+                role="title",
+                source_kind="web_page",
+                source_url="https://example.com",
+                observed_font_labels=["yg-jalnan"],
+                status="curated",
+            )
+
+            result = service.refresh_reference_candidates()
+            self.assertEqual(result["updated"], 1)
+            listed = service.list_references(status="curated")
+            self.assertEqual(listed["references"][0]["candidate_font_ids"], ["goodchoice-yg-jalnan"])
+
+    def test_learn_reference_pack_runs_extraction_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            fake_extraction = {
+                "url": "https://example.com",
+                "title": "Demo Extraction",
+                "textBlocks": [{"text": "Hello Reference"}],
+                "uniqueFonts": ["Demo Serif"],
+                "screenshot_path": "",
+                "json_path": "",
+            }
+
+            with mock.patch(
+                "fontagent.service.extract_web_reference_payload",
+                return_value=fake_extraction,
+            ):
+                result = service.learn_reference_pack(
+                    pack_name="trend-korean-brand-display",
+                    limit=2,
+                    continue_on_error=False,
+                )
+
+            self.assertEqual(result["succeeded"], 2)
+            self.assertEqual(result["failed"], 0)
+            listed = service.list_references(status="curated")
+            self.assertEqual(len(listed["references"]), 2)
+
+    def test_list_reference_packs_includes_context_expansion_packs(self) -> None:
+        service = FontAgentService(Path("/Users/jleavens_macmini/Projects/fontagent"))
+        packs = service.list_reference_packs()["packs"]
+
+        self.assertIn("trend-korean-video-thumbnail-display", packs)
+        self.assertIn("trend-video-subtitle-readable", packs)
+        self.assertIn("trend-web-editorial-heroes", packs)
+        self.assertIn("trend-presentation-cover-display", packs)
+        self.assertIn("trend-detailpage-brand-heroes", packs)
+        self.assertIn("trend-print-poster-display", packs)
+        self.assertIn("market-presentation-covers", packs)
+        self.assertIn("market-detailpage-heroes", packs)
+        self.assertIn("market-print-poster-typography", packs)
+
+    def test_add_reference_infers_market_class_from_behance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps({"fonts": []}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            created = service.add_reference(
+                title="Behance Detail Reference",
+                medium="detailpage",
+                surface="hero",
+                role="title",
+                source_kind="web_page",
+                source_url="https://www.behance.net/gallery/237183715/E-commerce-detail-page-design",
+                status="curated",
+            )
+
+            self.assertEqual(created["reference_class"], "market")
+
+    def test_list_references_and_status_support_private_user_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps({"fonts": []}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+            service.add_reference(
+                title="Shared Reference",
+                medium="web",
+                surface="landing_hero",
+                role="title",
+                source_kind="web_page",
+                source_url="https://example.com/shared",
+                status="curated",
+            )
+            service.add_reference(
+                title="Private Reference",
+                medium="video",
+                surface="thumbnail",
+                role="title",
+                source_kind="image_asset",
+                asset_path="/tmp/private.png",
+                reference_scope="private_user",
+                status="curated",
+            )
+
+            listed = service.list_references(reference_scope="private_user")
+            status = service.reference_catalog_status()
+
+            self.assertEqual(len(listed["references"]), 1)
+            self.assertEqual(listed["references"][0]["title"], "Private Reference")
+            self.assertEqual(status["reference_scopes"]["shared_public"], 1)
+            self.assertEqual(status["reference_scopes"]["private_user"], 1)
+
     def test_build_interview_plan_returns_request_and_canvas(self) -> None:
         plan = build_interview_plan(
             "web",
@@ -293,6 +1162,36 @@ class FontAgentServiceTests(unittest.TestCase):
             self.assertIn("title", result["font_system_preview"]["roles"])
             self.assertIn("subtitle", result["font_system_preview"]["roles"])
             self.assertIn("body", result["font_system_preview"]["roles"])
+            self.assertTrue(result["results"])
+
+    def test_guided_interview_recommend_supports_video_subtitle_track(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            source = Path("/Users/jleavens_macmini/Projects/fontagent/fontagent/seed/fonts.json")
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                source.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            result = service.guided_interview_recommend(
+                category="video",
+                subcategory="subtitle_track",
+                answers={
+                    "tone": "neutral",
+                    "density": "balanced",
+                    "language_mix": "ko",
+                    "license_mode": "monetized",
+                },
+                language="ko",
+                count=4,
+            )
+
+            self.assertEqual(result["request"]["surface"], "subtitle_track")
+            self.assertEqual(result["request"]["role"], "subtitle")
+            self.assertEqual(result["canvas"]["layout_mode"], "subtitle-band")
             self.assertTrue(result["results"])
 
     def test_guided_interview_recommend_can_omit_canvas_and_preview(self) -> None:
@@ -1168,6 +2067,7 @@ class FontAgentServiceTests(unittest.TestCase):
             result = service.list_use_cases()
 
             self.assertIn("documentary-landing-ko", result["use_cases"])
+            self.assertIn("knowledge-video-white-ko", result["use_cases"])
             self.assertIn("youtube-thumbnail-ko", result["use_cases"])
 
     def test_pick_preferred_file_uses_role_specific_weight_preferences(self) -> None:

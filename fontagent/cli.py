@@ -24,7 +24,18 @@ def main() -> None:
 
     subparsers.add_parser("init")
     subparsers.add_parser("catalog-status")
+    subparsers.add_parser("reference-status")
+    subparsers.add_parser("reference-vault")
     subparsers.add_parser("license-policy-catalog")
+    set_reference_vault = subparsers.add_parser("set-reference-vault")
+    set_reference_vault.add_argument("--vault-root", required=True)
+    set_reference_vault.add_argument("--vault-category", default="Fonts")
+    set_reference_vault.add_argument(
+        "--asset-policy",
+        choices=["public_metadata_only", "public_with_assets"],
+        default="public_metadata_only",
+    )
+    set_reference_vault.add_argument("--private-vault-root")
     contract_schema = subparsers.add_parser("contract-schema")
     contract_schema.add_argument("--name", default="typography-handoff.v1")
     bootstrap_project = subparsers.add_parser("bootstrap-project")
@@ -105,6 +116,112 @@ def main() -> None:
 
     subparsers.add_parser("list-curated-profiles")
     subparsers.add_parser("list-use-cases")
+
+    add_reference = subparsers.add_parser("add-reference")
+    add_reference.add_argument("--title", required=True)
+    add_reference.add_argument("--medium", required=True)
+    add_reference.add_argument("--surface", required=True)
+    add_reference.add_argument("--role", required=True)
+    add_reference.add_argument("--reference-class", choices=["specimen", "market", "campaign", "channel"])
+    add_reference.add_argument("--reference-scope", choices=["shared_public", "private_user"], default="shared_public")
+    add_reference.add_argument("--source-kind", required=True)
+    add_reference.add_argument("--source-url", default="")
+    add_reference.add_argument("--asset-path", default="")
+    add_reference.add_argument("--tone", action="append")
+    add_reference.add_argument("--language", action="append")
+    add_reference.add_argument("--text", action="append")
+    add_reference.add_argument("--candidate-font-id", action="append")
+    add_reference.add_argument("--observed-font", action="append")
+    add_reference.add_argument("--palette-json", default="{}")
+    add_reference.add_argument("--ratio-json", default="{}")
+    add_reference.add_argument("--extraction-method", default="manual")
+    add_reference.add_argument("--extraction-confidence", type=float, default=0.0)
+    add_reference.add_argument("--status", default="draft")
+    add_reference.add_argument("--note", action="append")
+
+    list_references = subparsers.add_parser("list-references")
+    list_references.add_argument("--medium")
+    list_references.add_argument("--surface")
+    list_references.add_argument("--role")
+    list_references.add_argument("--status")
+    list_references.add_argument("--reference-scope", choices=["shared_public", "private_user"])
+
+    add_reference_review = subparsers.add_parser("add-reference-review")
+    add_reference_review.add_argument("--reference-id", required=True)
+    add_reference_review.add_argument("--reviewer-kind", required=True)
+    add_reference_review.add_argument("--reviewer-name", required=True)
+    add_reference_review.add_argument("--model-name", default="")
+    add_reference_review.add_argument("--source", default="")
+    add_reference_review.add_argument("--summary", default="")
+    add_reference_review.add_argument("--candidate-font-id", action="append")
+    add_reference_review.add_argument("--observed-font", action="append")
+    add_reference_review.add_argument("--cohort-tag", action="append")
+    add_reference_review.add_argument("--confidence", type=float, default=0.0)
+    add_reference_review.add_argument("--status", default="curated")
+    add_reference_review.add_argument("--note", action="append")
+    add_reference_review.add_argument("--apply-to-reference", action="store_true")
+    add_reference_review.add_argument("--vault-root")
+    add_reference_review.add_argument("--vault-category", default="Fonts")
+
+    list_reference_reviews = subparsers.add_parser("list-reference-reviews")
+    list_reference_reviews.add_argument("--reference-id")
+    list_reference_reviews.add_argument("--status")
+
+    refresh_reference_candidates = subparsers.add_parser("refresh-reference-candidates")
+    refresh_reference_candidates.add_argument("--medium")
+    refresh_reference_candidates.add_argument("--surface")
+    refresh_reference_candidates.add_argument("--role")
+    refresh_reference_candidates.add_argument("--status", default="curated")
+
+    reference_strategies = subparsers.add_parser("reference-strategies")
+    reference_strategies.add_argument("--source-kind", required=True)
+    reference_strategies.add_argument("--source-url", default="")
+    reference_strategies.add_argument("--asset-path", default="")
+
+    extract_web_reference = subparsers.add_parser("extract-web-reference")
+    extract_web_reference.add_argument("--title", required=True)
+    extract_web_reference.add_argument("--url", required=True)
+    extract_web_reference.add_argument("--medium", required=True)
+    extract_web_reference.add_argument("--surface", required=True)
+    extract_web_reference.add_argument("--role", required=True)
+    extract_web_reference.add_argument("--reference-class", choices=["specimen", "market", "campaign", "channel"])
+    extract_web_reference.add_argument("--reference-scope", choices=["shared_public", "private_user"], default="shared_public")
+    extract_web_reference.add_argument("--tone", action="append")
+    extract_web_reference.add_argument("--language", action="append")
+    extract_web_reference.add_argument("--vault-root")
+    extract_web_reference.add_argument("--vault-category", default="Fonts")
+    extract_web_reference.add_argument("--status", default="draft")
+
+    extract_image_reference = subparsers.add_parser("extract-image-reference")
+    extract_image_reference.add_argument("--title", required=True)
+    extract_image_reference.add_argument("--image-path", required=True)
+    extract_image_reference.add_argument("--medium", required=True)
+    extract_image_reference.add_argument("--surface", required=True)
+    extract_image_reference.add_argument("--role", required=True)
+    extract_image_reference.add_argument("--reference-class", choices=["specimen", "market", "campaign", "channel"])
+    extract_image_reference.add_argument("--reference-scope", choices=["shared_public", "private_user"], default="shared_public")
+    extract_image_reference.add_argument("--tone", action="append")
+    extract_image_reference.add_argument("--language", action="append")
+    extract_image_reference.add_argument("--vault-root")
+    extract_image_reference.add_argument("--vault-category", default="Fonts")
+    extract_image_reference.add_argument("--status", default="draft")
+
+    subparsers.add_parser("list-reference-packs")
+    learn_reference_pack = subparsers.add_parser("learn-reference-pack")
+    learn_reference_pack.add_argument("--pack", required=True)
+    learn_reference_pack.add_argument("--limit", type=int)
+    learn_reference_pack.add_argument("--vault-root")
+    learn_reference_pack.add_argument("--vault-category")
+    learn_reference_pack.add_argument("--continue-on-error", action="store_true")
+
+    sync_reference_index = subparsers.add_parser("sync-reference-index")
+    sync_reference_index.add_argument("--vault-root")
+    sync_reference_index.add_argument("--vault-category")
+
+    sanitize_reference_vault = subparsers.add_parser("sanitize-reference-vault")
+    sanitize_reference_vault.add_argument("--vault-root")
+    sanitize_reference_vault.add_argument("--vault-category")
+    sanitize_reference_vault.add_argument("--keep-public-assets", action="store_true")
 
     list_candidates = subparsers.add_parser("list-candidates")
     list_candidates.add_argument("--status")
@@ -216,8 +333,21 @@ def main() -> None:
             _print({"seeded": service.init(), "db_path": str(service.db_path)})
         elif args.command == "catalog-status":
             _print(service.catalog_status())
+        elif args.command == "reference-status":
+            _print(service.reference_catalog_status())
+        elif args.command == "reference-vault":
+            _print(service.get_reference_settings())
         elif args.command == "license-policy-catalog":
             _print(service.license_policy_catalog())
+        elif args.command == "set-reference-vault":
+            _print(
+                service.save_reference_settings(
+                    vault_root=args.vault_root,
+                    vault_category=args.vault_category,
+                    asset_policy=args.asset_policy,
+                    private_vault_root=args.private_vault_root or "",
+                )
+            )
         elif args.command == "contract-schema":
             _print(service.get_contract_schema(args.name))
         elif args.command == "bootstrap-project":
@@ -314,6 +444,146 @@ def main() -> None:
             _print({"profiles": CURATED_CANDIDATE_SETS})
         elif args.command == "list-use-cases":
             _print(service.list_use_cases())
+        elif args.command == "add-reference":
+            _print(
+                service.add_reference(
+                    title=args.title,
+                    medium=args.medium,
+                    surface=args.surface,
+                    role=args.role,
+                    reference_class=args.reference_class or "",
+                    reference_scope=args.reference_scope,
+                    source_kind=args.source_kind,
+                    source_url=args.source_url,
+                    asset_path=args.asset_path,
+                    tones=args.tone,
+                    languages=args.language,
+                    text_blocks=args.text,
+                    candidate_font_ids=args.candidate_font_id,
+                    observed_font_labels=args.observed_font,
+                    palette=json.loads(args.palette_json),
+                    ratio_hint=json.loads(args.ratio_json),
+                    extraction_method=args.extraction_method,
+                    extraction_confidence=args.extraction_confidence,
+                    status=args.status,
+                    notes=args.note,
+                )
+            )
+        elif args.command == "list-references":
+            _print(
+                service.list_references(
+                    medium=args.medium,
+                    surface=args.surface,
+                    role=args.role,
+                    status=args.status,
+                    reference_scope=args.reference_scope,
+                )
+            )
+        elif args.command == "add-reference-review":
+            _print(
+                service.add_reference_review(
+                    reference_id=args.reference_id,
+                    reviewer_kind=args.reviewer_kind,
+                    reviewer_name=args.reviewer_name,
+                    model_name=args.model_name,
+                    source=args.source,
+                    summary=args.summary,
+                    candidate_font_ids=args.candidate_font_id,
+                    observed_font_labels=args.observed_font,
+                    cohort_tags=args.cohort_tag,
+                    confidence=args.confidence,
+                    status=args.status,
+                    notes=args.note,
+                    apply_to_reference=args.apply_to_reference,
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                )
+            )
+        elif args.command == "list-reference-reviews":
+            _print(
+                service.list_reference_reviews(
+                    reference_id=args.reference_id,
+                    status=args.status,
+                )
+            )
+        elif args.command == "refresh-reference-candidates":
+            _print(
+                service.refresh_reference_candidates(
+                    medium=args.medium,
+                    surface=args.surface,
+                    role=args.role,
+                    status=args.status,
+                )
+            )
+        elif args.command == "reference-strategies":
+            _print(
+                service.reference_extraction_strategies(
+                    source_kind=args.source_kind,
+                    source_url=args.source_url,
+                    asset_path=args.asset_path,
+                )
+            )
+        elif args.command == "extract-web-reference":
+            _print(
+                service.extract_web_reference(
+                    title=args.title,
+                    url=args.url,
+                    medium=args.medium,
+                    surface=args.surface,
+                    role=args.role,
+                    reference_class=args.reference_class or "",
+                    reference_scope=args.reference_scope,
+                    tones=args.tone,
+                    languages=args.language,
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                    status=args.status,
+                )
+            )
+        elif args.command == "extract-image-reference":
+            _print(
+                service.extract_image_reference(
+                    title=args.title,
+                    image_path=Path(args.image_path),
+                    medium=args.medium,
+                    surface=args.surface,
+                    role=args.role,
+                    reference_class=args.reference_class or "",
+                    reference_scope=args.reference_scope,
+                    tones=args.tone,
+                    languages=args.language,
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                    status=args.status,
+                )
+            )
+        elif args.command == "list-reference-packs":
+            _print(service.list_reference_packs())
+        elif args.command == "learn-reference-pack":
+            _print(
+                service.learn_reference_pack(
+                    pack_name=args.pack,
+                    limit=args.limit,
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                    continue_on_error=args.continue_on_error,
+                )
+            )
+        elif args.command == "sync-reference-index":
+            _print(
+                service.sync_reference_index(
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                )
+            )
+        elif args.command == "sanitize-reference-vault":
+            _print(
+                service.sanitize_public_reference_vault(
+                    vault_root=Path(args.vault_root).expanduser().resolve() if args.vault_root else None,
+                    vault_category=args.vault_category,
+                    remove_public_assets=not args.keep_public_assets,
+                )
+            )
         elif args.command == "list-candidates":
             _print(
                 service.list_candidates(
