@@ -318,6 +318,12 @@ def main() -> None:
     fetch_noonnu.add_argument("--output-dir", required=True)
     fetch_noonnu.add_argument("--limit", type=int, default=20)
 
+    scan_system = subparsers.add_parser("scan-system")
+    scan_system.add_argument("--timeout", type=int, default=20)
+
+    import_official_sources = subparsers.add_parser("import-official-sources")
+    import_official_sources.add_argument("--source", action="append")
+
     serve_cmd = subparsers.add_parser("serve")
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8123)
@@ -332,6 +338,7 @@ def main() -> None:
         if args.command == "init":
             _print({"seeded": service.init(), "db_path": str(service.db_path)})
         elif args.command == "catalog-status":
+            service.ensure_catalog_ready()
             _print(service.catalog_status())
         elif args.command == "reference-status":
             _print(service.reference_catalog_status())
@@ -362,6 +369,7 @@ def main() -> None:
                 )
             )
         elif args.command == "search":
+            service.ensure_catalog_ready()
             _print(
                 {
                     "results": service.search(
@@ -375,6 +383,7 @@ def main() -> None:
                 }
             )
         elif args.command == "recommend":
+            service.ensure_catalog_ready()
             _print(
                 {
                     "results": service.recommend(
@@ -388,6 +397,7 @@ def main() -> None:
                 }
             )
         elif args.command == "recommend-use-case":
+            service.ensure_catalog_ready()
             _print(
                 service.recommend_use_case(
                     medium=args.medium,
@@ -407,8 +417,10 @@ def main() -> None:
                 )
             )
         elif args.command == "preview":
+            service.ensure_catalog_ready()
             _print(service.preview(args.font_id, preset=args.preset, sample_text=args.sample_text))
         elif args.command == "install":
+            service.ensure_catalog_ready()
             _print(service.install(args.font_id, Path(args.output_dir)))
         elif args.command == "verify-installations":
             _print(
@@ -601,10 +613,13 @@ def main() -> None:
                 )
             )
         elif args.command == "export-css":
+            service.ensure_catalog_ready()
             _print(service.export_css(args.font_id))
         elif args.command == "export-remotion":
+            service.ensure_catalog_ready()
             _print(service.export_remotion(args.font_id))
         elif args.command == "prepare-font-system":
+            service.ensure_catalog_ready()
             _print(
                 service.prepare_font_system(
                     project_path=Path(args.project_path),
@@ -617,6 +632,7 @@ def main() -> None:
                 )
             )
         elif args.command == "generate-template-bundle":
+            service.ensure_catalog_ready()
             _print(
                 service.generate_template_bundle(
                     project_path=Path(args.project_path),
@@ -628,6 +644,7 @@ def main() -> None:
                 )
             )
         elif args.command == "generate-typography-handoff":
+            service.ensure_catalog_ready()
             _print(
                 service.generate_typography_handoff(
                     project_path=Path(args.project_path),
@@ -691,9 +708,16 @@ def main() -> None:
                     limit=args.limit,
                 )
             )
+        elif args.command == "scan-system":
+            _print(service.scan_system_fonts(timeout=args.timeout))
+        elif args.command == "import-official-sources":
+            service.ensure_catalog_ready()
+            _print(service.import_official_sources(sources=args.source))
         elif args.command == "serve":
+            service.ensure_catalog_ready(auto_scan_system=True)
             serve(root, host=args.host, port=args.port)
         elif args.command == "mcp":
+            service.ensure_catalog_ready(auto_scan_system=True)
             serve_stdio(root)
     except Exception as exc:
         _print({"error": str(exc)})

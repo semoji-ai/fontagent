@@ -57,9 +57,23 @@ from .resolver import (
     write_browser_download_task,
     write_source_browser_task,
 )
+from .system_scan import scan_system_font_records
 from .template_bundle import write_template_bundle
 from .use_cases import UseCaseRequest, build_use_case_query, preview_preset_for_use_case
 from .use_cases import USE_CASE_PRESETS, get_use_case_preset
+from .db import connect
+
+
+DEFAULT_OFFICIAL_IMPORT_SOURCES = (
+    "naver_hangeul",
+    "google_display",
+    "cafe24_brand",
+    "nexon_brand",
+    "woowahan_brand",
+    "hancom",
+    "jeju_official",
+    "fontshare_display",
+)
 
 
 def _safe_fs_name(value: str) -> str:
@@ -199,6 +213,113 @@ class FontAgentService:
         if resolved_root is not None and private_root == resolved_root:
             private_root = None
         return resolved_root, resolved_category, asset_policy, private_root
+
+    def _font_count(self) -> int:
+        with connect(self.db_path) as conn:
+            row = conn.execute("SELECT COUNT(*) AS count FROM fonts").fetchone()
+        return int(row["count"] or 0) if row else 0
+
+    def _font_count_for_source(self, source_site: str) -> int:
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM fonts WHERE source_site = ?",
+                (source_site,),
+            ).fetchone()
+        return int(row["count"] or 0) if row else 0
+
+    def _ensure_reference_vault_paths(self) -> None:
+        settings = self.get_reference_settings()
+        vault_root = settings.get("vault_root") or ""
+        private_root = settings.get("private_vault_root") or ""
+        if vault_root:
+            Path(vault_root).expanduser().mkdir(parents=True, exist_ok=True)
+        if private_root:
+            Path(private_root).expanduser().mkdir(parents=True, exist_ok=True)
+
+    def ensure_catalog_ready(self, *, auto_scan_system: bool = False) -> dict:
+        self.repository.init_db()
+        seeded = 0
+        scanned = 0
+        seed_path = self.root / "fontagent" / "seed" / "fonts.json"
+        if self._font_count() == 0 and seed_path.exists():
+            seeded = self.init()
+        if auto_scan_system and self._font_count_for_source("system_local") == 0:
+            scanned = int(self.scan_system_fonts().get("upserted", 0))
+        self._ensure_reference_vault_paths()
+        return {
+            "db_path": str(self.db_path),
+            "seeded": seeded,
+            "system_scanned": scanned,
+            "total_fonts": self._font_count(),
+        }
+
+    def scan_system_fonts(self, *, timeout: int = 20) -> dict:
+        records = scan_system_font_records(timeout=timeout)
+        imported = self.repository.upsert_many(records)
+        verified_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        with connect(self.db_path) as conn:
+            for item in records:
+                conn.execute(
+                    """
+                    UPDATE fonts
+                    SET verification_status = ?,
+                        verified_at = ?,
+                        installed_file_count = ?,
+                        verification_failure_reason = ?
+                    WHERE font_id = ?
+                    """,
+                    (
+                        "installed",
+                        verified_at,
+                        int(item.get("installed_file_count", 1) or 1),
+                        "",
+                        item["font_id"],
+                    ),
+                )
+            conn.commit()
+        return {
+            "source": "system_local",
+            "scanned_families": len(records),
+            "upserted": imported,
+            "verified_at": verified_at,
+        }
+
+    def import_official_sources(self, *, sources: list[str] | None = None) -> dict:
+        requested = list(sources or DEFAULT_OFFICIAL_IMPORT_SOURCES)
+        handlers = {
+            "naver_hangeul": self.import_naver_fonts,
+            "google_display": self.import_google_display_fonts,
+            "cafe24_brand": self.import_cafe24_fonts,
+            "nexon_brand": self.import_nexon_fonts,
+            "woowahan_brand": self.import_woowahan_fonts,
+            "hancom": self.import_hancom_fonts,
+            "jeju_official": self.import_jeju_fonts,
+            "fontshare_display": self.import_fontshare_fonts,
+            "gmarket_brand": self.import_gmarket_fonts,
+            "goodchoice_brand": self.import_goodchoice_fonts,
+            "league_movable_type": self.import_league_fonts,
+            "velvetyne_display": self.import_velvetyne_fonts,
+            "gongu_freefont": self.import_gongu_fonts,
+            "fonco_freefont": self.import_fonco_fonts,
+        }
+        results: list[dict] = []
+        failures: list[dict] = []
+        for source in requested:
+            handler = handlers.get(source)
+            if handler is None:
+                failures.append({"source": source, "error": "unknown_source"})
+                continue
+            try:
+                results.append(handler())
+            except Exception as exc:  # noqa: BLE001
+                failures.append({"source": source, "error": str(exc)})
+        return {
+            "requested_sources": requested,
+            "succeeded": len(results),
+            "failed": len(failures),
+            "results": results,
+            "failures": failures,
+        }
 
     def _infer_reference_class(
         self,
@@ -2106,11 +2227,11 @@ class FontAgentService:
         use_case: Optional[str] = None,
     ) -> dict:
         return self.prepare_font_system(
-            project_path=project_path,
-            task=task,
-            language=language,
-            target=target,
-            asset_dir=asset_dir,
+                project_path=project_path,
+                task=task,
+                language=language,
+                target=target,
+                asset_dir=asset_dir,
             use_case=use_case,
             with_templates=True,
         )

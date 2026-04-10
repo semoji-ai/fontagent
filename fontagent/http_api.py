@@ -1430,6 +1430,7 @@ INDEX_HTML = """<!doctype html>
 
 def make_handler(root: Path):
     service = FontAgentService(root)
+    service.ensure_catalog_ready(auto_scan_system=True)
 
     class Handler(BaseHTTPRequestHandler):
         def _send_json(self, payload: dict, status: int = 200) -> None:

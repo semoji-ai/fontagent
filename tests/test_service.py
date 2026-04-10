@@ -39,6 +39,95 @@ from fontagent.use_cases import UseCaseRequest, preview_preset_for_use_case
 
 
 class FontAgentServiceTests(unittest.TestCase):
+    def test_ensure_catalog_ready_bootstraps_seed_and_system_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "fixture-seed",
+                        "family": "Fixture Seed",
+                        "slug": "fixture-seed",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture",
+                        "homepage_url": "file://fixture",
+                        "license_id": "fixture",
+                        "license_summary": "테스트",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": True,
+                        "languages": ["ko"],
+                        "tags": ["title"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "",
+                        "format": "ttf",
+                        "variable_font": False,
+                    }
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            with mock.patch(
+                "fontagent.service.scan_system_font_records",
+                return_value=[
+                    {
+                        "font_id": "system-apple-sd-gothic-neo",
+                        "family": "Apple SD Gothic Neo",
+                        "slug": "apple-sd-gothic-neo",
+                        "source_site": "system_local",
+                        "source_page_url": "file:///System/Library/Fonts/AppleSDGothicNeo.ttc",
+                        "homepage_url": "",
+                        "license_id": "system_local",
+                        "license_summary": "시스템 폰트",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko", "en"],
+                        "tags": ["system", "installed", "local"],
+                        "recommended_for": ["local_preview"],
+                        "preview_text_ko": "시스템",
+                        "preview_text_en": "System",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "installed_system",
+                        "format": "ttc",
+                        "variable_font": False,
+                        "installed_file_count": 2,
+                    }
+                ],
+            ):
+                summary = service.ensure_catalog_ready(auto_scan_system=True)
+            self.assertEqual(summary["seeded"], 1)
+            self.assertEqual(summary["system_scanned"], 1)
+            status = service.catalog_status()
+            self.assertEqual(status["total_fonts"], 2)
+            self.assertEqual(status["installed_fonts"], 1)
+            self.assertIn("system_local", status["sources"])
+
+    def test_import_official_sources_aggregates_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = FontAgentService(root)
+            with mock.patch.object(service, "import_naver_fonts", return_value={"source": "naver_hangeul", "imported": 3}), mock.patch.object(
+                service,
+                "import_google_display_fonts",
+                return_value={"source": "google_display", "imported": 2},
+            ):
+                result = service.import_official_sources(sources=["naver_hangeul", "google_display"])
+            self.assertEqual(result["succeeded"], 2)
+            self.assertEqual(result["failed"], 0)
+            self.assertEqual([item["source"] for item in result["results"]], ["naver_hangeul", "google_display"])
+
     def test_init_and_search(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

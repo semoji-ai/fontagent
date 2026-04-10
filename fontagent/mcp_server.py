@@ -24,14 +24,7 @@ class FontAgentMCPApplication:
         self._ensure_ready()
 
     def _ensure_ready(self) -> None:
-        seed_path = self.root / "fontagent" / "seed" / "fonts.json"
-        if self.service.db_path.exists():
-            self.service.repository.init_db()
-            return
-        if seed_path.exists():
-            self.service.init()
-            return
-        self.service.repository.init_db()
+        self.service.ensure_catalog_ready(auto_scan_system=True)
 
     def tool_definitions(self) -> list[dict[str, Any]]:
         return [
