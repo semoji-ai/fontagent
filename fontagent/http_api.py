@@ -492,8 +492,8 @@ INDEX_HTML = """<!doctype html>
       gap: 16px;
     }
     .catalog-card {
-      position: relative;
       display: grid;
+      grid-template-rows: auto auto;
       border: 1px solid var(--line);
       border-radius: 20px;
       overflow: hidden;
@@ -509,9 +509,6 @@ INDEX_HTML = """<!doctype html>
       object-fit: cover;
     }
     .catalog-badge {
-      position: absolute;
-      top: 12px;
-      right: 12px;
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -524,6 +521,21 @@ INDEX_HTML = """<!doctype html>
       backdrop-filter: blur(8px);
       background: rgba(255,255,255,0.88);
       border: 1px solid rgba(30,24,17,0.10);
+    }
+    .catalog-card-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px 12px;
+      background: rgba(255,253,248,0.96);
+    }
+    .catalog-badge.license {
+      text-transform: none;
+      letter-spacing: 0.01em;
+      font-size: 12px;
+      padding: 8px 12px;
     }
     .catalog-badge.ready {
       color: #0f5132;
@@ -541,6 +553,45 @@ INDEX_HTML = """<!doctype html>
     .catalog-badge.blocked {
       color: #7a1f1f;
       background: rgba(252, 228, 228, 0.94);
+    }
+    .catalog-badge.allowed,
+    .license-pill.allowed {
+      color: #0f5132;
+      background: rgba(234, 247, 238, 0.94);
+    }
+    .catalog-badge.caution,
+    .license-pill.caution {
+      color: #8a5312;
+      background: rgba(252, 242, 220, 0.94);
+    }
+    .catalog-badge.unknown,
+    .license-pill.unknown {
+      color: #5e4a3a;
+      background: rgba(247, 238, 228, 0.94);
+    }
+    .catalog-badge.blocked.license,
+    .license-pill.blocked {
+      color: #7a1f1f;
+      background: rgba(252, 228, 228, 0.94);
+    }
+    .license-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(30,24,17,0.10);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .license-detail {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
     }
     .catalog-pagination {
       display: flex;
@@ -1480,7 +1531,9 @@ INDEX_HTML = """<!doctype html>
           <img src="${previewUrls[index] || ''}" alt="${esc(font.family)} compare preview" />
           <div class="body">
             <strong>${esc(font.family)}</strong>
-            <span>${esc(font.source_site || '')} · ${esc(font.license_summary || '')}</span>
+            <span>${esc(font.source_site || '')}</span>
+            <div class="license-pill ${esc(licenseProfileStatus(font.license_profile || {}))}">${esc(licenseBadgeLabel(font.license_profile || {}))}</div>
+            <span class="license-detail">${esc(licenseBadgeDetail(font.license_profile || {}))}</span>
             ${renderLines((font.why || []).slice(0, 2))}
           </div>
         </article>
@@ -1521,6 +1574,48 @@ INDEX_HTML = """<!doctype html>
       return labels[normalized] || labels.unknown;
     }
 
+    function licenseProfileStatus(profile = {}) {
+      const normalized = String(profile.status || 'unknown').toLowerCase();
+      if (normalized === 'allowed') {
+        return 'allowed';
+      }
+      if (normalized === 'caution') {
+        return 'caution';
+      }
+      if (normalized === 'blocked') {
+        return 'blocked';
+      }
+      return 'unknown';
+    }
+
+    function licenseBadgeLabel(profile = {}) {
+      const status = licenseProfileStatus(profile);
+      if (status === 'allowed') {
+        return '상업 가능';
+      }
+      if (status === 'caution') {
+        return '상업 가능 · 확인';
+      }
+      if (status === 'blocked') {
+        return '상업 제한';
+      }
+      return '확인 필요';
+    }
+
+    function licenseBadgeDetail(profile = {}) {
+      const status = licenseProfileStatus(profile);
+      if (status === 'allowed') {
+        return '상업 사용 가능이 확인된 폰트입니다.';
+      }
+      if (status === 'caution') {
+        return '상업 사용은 가능하지만 매체 범위나 원문 확인이 더 필요합니다.';
+      }
+      if (status === 'blocked') {
+        return '상업 사용 제한 문구가 확인됐습니다.';
+      }
+      return '상업 사용 가능 여부가 구조화되지 않았습니다.';
+    }
+
     function renderCatalog(results, meta = {}) {
       const container = document.getElementById('catalogGallery');
       const count = document.getElementById('catalogCount');
@@ -1539,11 +1634,15 @@ INDEX_HTML = """<!doctype html>
       container.innerHTML = results.map((font) => {
         const previewUrl = previewAssetUrl(font.font_id, preset, sampleText);
         const automationProfile = font.automation_profile || {};
+        const licenseProfile = font.license_profile || {};
         const badgeStatus = automationProfile.status || 'unknown';
         return `
           <article class="catalog-card">
-            <div class="catalog-badge ${esc(badgeStatus)}">${esc(catalogBadgeLabel(badgeStatus))}</div>
             <img loading="lazy" src="${previewUrl}" alt="${esc(font.family)} catalog preview" />
+            <div class="catalog-card-footer">
+              <div class="catalog-badge license ${esc(licenseProfileStatus(licenseProfile))}">${esc(licenseBadgeLabel(licenseProfile))}</div>
+              <div class="catalog-badge ${esc(badgeStatus)}">${esc(catalogBadgeLabel(badgeStatus))}</div>
+            </div>
           </article>
         `;
       }).join('');
@@ -1584,7 +1683,9 @@ INDEX_HTML = """<!doctype html>
         <article class="role-card">
           <strong>${esc(name)}</strong>
           <h4>${esc(role.family)}</h4>
-          <p>${esc(role.generic_family || '')} · ${esc(role.source_site || '')} · ${esc(role.license_summary || '')}</p>
+          <p>${esc(role.generic_family || '')} · ${esc(role.source_site || '')}</p>
+          <div class="license-pill ${esc(licenseProfileStatus(role.license_profile || {}))}">${esc(licenseBadgeLabel(role.license_profile || {}))}</div>
+          <span class="license-detail">${esc(role.license_summary || licenseBadgeDetail(role.license_profile || {}))}</span>
           <div class="tag-list">${renderTagList(role.tags || [])}</div>
         </article>
       `).join('');
@@ -1645,7 +1746,8 @@ INDEX_HTML = """<!doctype html>
         <article class="role-card">
           <strong>${esc(name)}</strong>
           <h4>${esc(role.family)}</h4>
-          <p>${esc(role.license_summary || '')}</p>
+          <div class="license-pill ${esc(licenseProfileStatus(role.license_profile || {}))}">${esc(licenseBadgeLabel(role.license_profile || {}))}</div>
+          <span class="license-detail">${esc(role.license_summary || licenseBadgeDetail(role.license_profile || {}))}</span>
         </article>
       `).join('');
       container.innerHTML = `

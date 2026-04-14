@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from html import unescape
 from typing import Optional
 from pathlib import Path
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 from .http_utils import fetch_text
 from .resolver import absolutize, classify_download_type
@@ -101,6 +103,64 @@ def parse_listing_html(html: str, base_url: str = "https://noonnu.cc/") -> list[
     return summaries
 
 
+def parse_sitemap_xml(xml: str, base_url: str = "https://noonnu.cc/") -> list[NoonnuSummary]:
+    summaries: list[NoonnuSummary] = []
+    seen: set[str] = set()
+
+    for match in re.finditer(r"<loc>(?P<loc>.*?)</loc>", xml, re.I | re.S):
+        loc = _clean(match.group("loc"))
+        if "/font_page/" not in loc:
+            continue
+        slug = loc.rstrip("/").split("/")[-1]
+        if not slug or slug in seen:
+            continue
+        summaries.append(
+            NoonnuSummary(
+                slug=slug,
+                family=slug.replace("-", " ").title(),
+                source_page_url=absolutize(base_url, loc),
+            )
+        )
+        seen.add(slug)
+
+    return summaries
+
+
+def _merge_summaries(*groups: list[NoonnuSummary]) -> list[NoonnuSummary]:
+    merged: list[NoonnuSummary] = []
+    seen: set[str] = set()
+    for group in groups:
+        for summary in group:
+            if summary.slug in seen:
+                continue
+            merged.append(summary)
+            seen.add(summary.slug)
+    return merged
+
+
+def _sort_summaries_for_fetch(summaries: list[NoonnuSummary]) -> list[NoonnuSummary]:
+    def key(summary: NoonnuSummary) -> tuple[int, int | str]:
+        if summary.slug.isdigit():
+            return (0, -int(summary.slug))
+        return (1, summary.slug)
+
+    return sorted(summaries, key=key)
+
+
+def _synthetic_listing_html(summaries: list[NoonnuSummary]) -> str:
+    anchors = "\n".join(
+        f'    <a href="/font_page/{summary.slug}">{summary.family}</a>'
+        for summary in summaries
+    )
+    return "<html><body>\n" + anchors + "\n</body></html>\n"
+
+
+def _default_sitemap_url(listing_url: str) -> str:
+    parts = urlsplit(listing_url)
+    path = "/sitemap.xml"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 def _extract_download_url(html: str, source_page_url: str) -> str:
     patterns = [
         r'<a[^>]+href="([^"]+)"[^>]*>\s*<span>\s*다운로드 페이지로 이동\s*</span>\s*</a>',
@@ -192,6 +252,7 @@ def fetch_noonnu_snapshot(
     output_dir: Path,
     limit: int = 20,
     delay_seconds: float = 0.0,
+    sitemap_url: Optional[str] = None,
 ) -> dict:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -199,20 +260,62 @@ def fetch_noonnu_snapshot(
     detail_dir.mkdir(parents=True, exist_ok=True)
 
     listing_html = fetch_text(listing_url)
-    listing_path = output_dir / "listing.html"
-    listing_path.write_text(listing_html, encoding="utf-8")
+    source_listing_path = output_dir / "listing.source.html"
+    source_listing_path.write_text(listing_html, encoding="utf-8")
 
-    summaries = parse_listing_html(listing_html, base_url=listing_url)
+    listing_summaries = parse_listing_html(listing_html, base_url=listing_url)
+    sitemap_path = None
+    sitemap_summaries: list[NoonnuSummary] = []
+    sitemap_target = sitemap_url or _default_sitemap_url(listing_url)
+    try:
+        sitemap_xml = fetch_text(sitemap_target)
+        sitemap_path = output_dir / "sitemap.xml"
+        sitemap_path.write_text(sitemap_xml, encoding="utf-8")
+        sitemap_summaries = _sort_summaries_for_fetch(parse_sitemap_xml(sitemap_xml, base_url=listing_url))
+    except Exception:
+        sitemap_path = None
+        sitemap_summaries = []
+
+    summaries = _merge_summaries(listing_summaries, sitemap_summaries)
+    listing_path = output_dir / "listing.html"
+    listing_path.write_text(_synthetic_listing_html(summaries), encoding="utf-8")
     fetched = 0
+    skipped_existing = 0
+    failures: list[dict[str, str]] = []
     for summary in summaries[:limit]:
-        detail_html = fetch_text(summary.source_page_url)
-        (detail_dir / f"{summary.slug}.html").write_text(detail_html, encoding="utf-8")
-        fetched += 1
+        detail_path = detail_dir / f"{summary.slug}.html"
+        if detail_path.exists():
+            skipped_existing += 1
+            continue
+        try:
+            detail_html = fetch_text(summary.source_page_url)
+            detail_path.write_text(detail_html, encoding="utf-8")
+            fetched += 1
+        except Exception as exc:
+            failures.append(
+                {
+                    "slug": summary.slug,
+                    "source_page_url": summary.source_page_url,
+                    "error": str(exc),
+                }
+            )
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
+    failures_path = output_dir / "failed_details.json"
+    if failures:
+        failures_path.write_text(json.dumps(failures, ensure_ascii=False, indent=2), encoding="utf-8")
+
     return {
         "listing_path": str(listing_path),
+        "source_listing_path": str(source_listing_path),
+        "sitemap_path": str(sitemap_path) if sitemap_path else None,
+        "summary_count": len(summaries),
+        "listing_summary_count": len(listing_summaries),
+        "sitemap_summary_count": len(sitemap_summaries),
         "detail_dir": str(detail_dir),
         "fetched_details": fetched,
+        "skipped_existing": skipped_existing,
+        "failed_count": len(failures),
+        "failed_details_path": str(failures_path) if failures else None,
     }

@@ -81,8 +81,8 @@ def render_preview_svg(
   <rect x="18" y="18" width="1164" height="644" rx="30" fill="#fffdf8" stroke="#d8cfbe" stroke-width="2"/>
   <text x="54" y="74" font-size="22" font-family="Georgia, serif" fill="#7c6d54">{label}</text>
   <text x="54" y="164" font-size="{config["family_size"]}" font-weight="700" font-family="{font_stack}" fill="#17120e">{family}</text>
-  <text x="54" y="338" font-size="{config["size"]}" font-family="{font_stack}" fill="#17120e">{sample_text}</text>
-  <text x="54" y="618" font-size="21" font-family="Menlo, monospace" fill="#6c6256">{license_summary}</text>
+  <text x="54" y="356" font-size="{config["size"]}" font-family="{font_stack}" fill="#17120e">{sample_text}</text>
+  <text x="54" y="540" font-size="25" font-family="Menlo, monospace" fill="#6c6256">{license_summary}</text>
 </svg>"""
 
 

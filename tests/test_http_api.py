@@ -12,6 +12,8 @@ class FontAgentHttpApiTests(unittest.TestCase):
         self.assertIn("Applicable Font Catalog", INDEX_HTML)
         self.assertIn("Commit / Export", INDEX_HTML)
         self.assertIn("빠른 시작 프리셋", INDEX_HTML)
+        self.assertIn("상업 가능", INDEX_HTML)
+        self.assertIn("확인 필요", INDEX_HTML)
 
     def test_resolve_recommend_use_case_payload_uses_preset_defaults_when_use_case_is_provided(self) -> None:
         payload = resolve_recommend_use_case_payload(

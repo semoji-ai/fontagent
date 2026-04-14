@@ -493,6 +493,12 @@ def _parse_gongu_license(license_text: str) -> tuple[str, bool, bool, bool, bool
     cleaned = _clean(license_text)
     if "OFL" in cleaned:
         return "ofl", True, True, True, True
+    if (
+        ("상업적 이용" in cleaned or "상업적이용" in cleaned)
+        and ("가능" in cleaned or "자유롭게 이용 가능" in cleaned or "2차적 저작물 작성 가능" in cleaned or "2차적저작물작성 가능" in cleaned)
+        and "금지" not in cleaned
+    ):
+        return "gongu-commercial-allowed", True, True, True, False
     if any(token in cleaned for token in ("제1유형", "1유형", "1 유형")):
         return "kogl-type1", True, True, True, False
     if any(token in cleaned for token in ("제2유형", "2유형", "2 유형")) or "상업적이용금지" in cleaned or "상업적 이용금지" in cleaned:

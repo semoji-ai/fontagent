@@ -14,6 +14,10 @@ class GonguLicenseParsingTests(unittest.TestCase):
         parsed = _parse_gongu_license("공공누리 2유형 이용조건: 출처표시 + 상업적 이용금지")
         self.assertEqual(parsed, ("kogl-type2", False, False, False, False))
 
+    def test_parse_gongu_commercially_allowed_phrase_without_type_number(self) -> None:
+        parsed = _parse_gongu_license("출처표시 *상업적 이용 및 변경 등 2차적 저작물 작성 가능 무료글꼴")
+        self.assertEqual(parsed, ("gongu-commercial-allowed", True, True, True, False))
+
 
 if __name__ == "__main__":
     unittest.main()

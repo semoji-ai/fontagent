@@ -94,6 +94,22 @@ def _reference_note_slug(value: str) -> str:
     return value or "reference"
 
 
+LICENSE_EXPLICIT_ALLOW_RE = re.compile(
+    r"(상업적\s*(사용|이용)\s*가능|모든\s*상업적\s*사용|상업적\s*목적으로\s*사용\s*가능|"
+    r"상업적\s*이용\s*및\s*변경|상업적이용\s*및\s*변경|2차적\s*저작물\s*작성\s*가능|"
+    r"모든\s*사용\s*범위에서\s*자유롭게\s*사용|라이선스\s*제한\s*없이|"
+    r"free\s*for\s*commercial\s*use|commercial\s*use\s*allowed|"
+    r"Open\s*Font\s*License|SIL\s*Open\s*Font\s*License|OFL)",
+    re.I,
+)
+
+LICENSE_EXPLICIT_DENY_RE = re.compile(
+    r"(상업적\s*(사용|이용)\s*불가|상업적\s*(사용|이용)\s*금지|비상업|non-?commercial|commercial\s*use\s*not\s*allowed)",
+    re.I,
+)
+
+
+
 REFERENCE_CLASS_WEIGHTS = {
     "specimen": 0.7,
     "market": 1.2,
@@ -390,6 +406,8 @@ class FontAgentService:
         download_source_rank = self._download_source_rank(item)
         source_policy = get_source_license_policy(source_site)
         trust_level = source_policy["trust_level"]
+        explicit_allow = bool(LICENSE_EXPLICIT_ALLOW_RE.search(license_summary))
+        explicit_deny = bool(LICENSE_EXPLICIT_DENY_RE.search(license_summary))
         basis: list[str] = []
         gaps: list[str] = []
 
@@ -411,8 +429,14 @@ class FontAgentService:
             gaps.append("download_source_not_verified")
         if commercial_allowed:
             basis.append("commercial_use_allowed")
-        else:
+        elif explicit_deny:
             gaps.append("commercial_use_not_allowed")
+        else:
+            gaps.append("commercial_use_not_confirmed")
+        if explicit_allow:
+            basis.append("license_summary_explicit_allow")
+        if explicit_deny:
+            basis.append("license_summary_explicit_deny")
         if video_allowed:
             basis.append("video_use_allowed")
         else:
@@ -424,12 +448,14 @@ class FontAgentService:
         if redistribution_allowed:
             basis.append("redistribution_allowed")
 
-        if not commercial_allowed:
+        effective_commercial_allowed = commercial_allowed or explicit_allow
+
+        if explicit_deny:
             status = "blocked"
             confidence = "high" if license_summary else "medium"
             score = 20
             summary = "상업 사용 제한"
-        else:
+        elif effective_commercial_allowed:
             confidence_score = 0
             if license_summary:
                 confidence_score += 1
@@ -448,10 +474,21 @@ class FontAgentService:
             else:
                 confidence = "low"
                 score = 56
+            if explicit_allow and not commercial_allowed:
+                score = max(score - 6, 50)
             status = "allowed" if video_allowed or web_allowed else "caution"
             summary = "상업 사용 가능"
             if not video_allowed and not web_allowed:
                 summary = "상업 사용 가능, 세부 매체 조건 확인 필요"
+            if explicit_allow and not commercial_allowed:
+                summary = "상업 사용 가능 문구 확인, 구조화 필드 재검토 필요"
+                gaps.append("commercial_use_structured_flag_needs_review")
+        else:
+            status = "unknown"
+            confidence = "low" if license_summary else "medium"
+            score = 34
+            summary = "상업 사용 여부 확인 필요"
+            gaps.append("commercial_use_not_confirmed")
 
         if status == "blocked":
             recommended_action = "do_not_use"
@@ -459,6 +496,8 @@ class FontAgentService:
             recommended_action = "proceed" if source_policy["review_level"] == "low" else "proceed_with_license_note"
         elif status == "allowed":
             recommended_action = "proceed_with_license_note"
+        elif status == "unknown":
+            recommended_action = "review_license_page"
         elif confidence == "low":
             recommended_action = "manual_review_required"
         else:
@@ -492,6 +531,122 @@ class FontAgentService:
             "review_required": review_required,
             "recommended_action": recommended_action,
             "notes": notes,
+        }
+
+    def _reconciled_license_flags(self, item) -> dict:
+        license_summary = (self._get_attr(item, "license_summary") or "").strip()
+        source_site = (self._get_attr(item, "source_site") or "").lower()
+        current = {
+            "commercial_use_allowed": bool(self._get_attr(item, "commercial_use_allowed")),
+            "video_use_allowed": bool(self._get_attr(item, "video_use_allowed")),
+            "web_embedding_allowed": bool(self._get_attr(item, "web_embedding_allowed")),
+            "redistribution_allowed": bool(self._get_attr(item, "redistribution_allowed")),
+        }
+
+        if source_site == "system_local":
+            return {
+                **current,
+                "changed": False,
+                "reason": "system_local_skipped",
+            }
+
+        explicit_allow = bool(LICENSE_EXPLICIT_ALLOW_RE.search(license_summary))
+        explicit_deny = bool(LICENSE_EXPLICIT_DENY_RE.search(license_summary))
+
+        normalized = dict(current)
+        reasons: list[str] = []
+
+        if explicit_deny:
+            normalized["commercial_use_allowed"] = False
+            reasons.append("explicit_commercial_deny")
+        elif explicit_allow:
+            normalized["commercial_use_allowed"] = True
+            reasons.append("explicit_commercial_allow")
+
+        changed_fields = [
+            key for key, value in normalized.items()
+            if current[key] != value
+        ]
+        return {
+            **normalized,
+            "changed": bool(changed_fields),
+            "changed_fields": changed_fields,
+            "reason": ", ".join(dict.fromkeys(reasons)) if reasons else "no_change",
+        }
+
+    def reconcile_license_fields(
+        self,
+        *,
+        source_site: str | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        fonts = self.repository.list_fonts()
+        target_source = (source_site or "").strip().lower()
+        inspected = 0
+        changed = 0
+        skipped = 0
+        samples: list[dict] = []
+
+        with connect(self.db_path) as conn:
+            for font in fonts:
+                if target_source and (font.source_site or "").lower() != target_source:
+                    continue
+                inspected += 1
+                reconciled = self._reconciled_license_flags(font)
+                if not reconciled["changed"]:
+                    skipped += 1
+                    continue
+                changed += 1
+                samples.append(
+                    {
+                        "font_id": font.font_id,
+                        "family": font.family,
+                        "source_site": font.source_site,
+                        "changed_fields": reconciled["changed_fields"],
+                        "reason": reconciled["reason"],
+                        "before": {
+                            "commercial_use_allowed": font.commercial_use_allowed,
+                            "video_use_allowed": font.video_use_allowed,
+                            "web_embedding_allowed": font.web_embedding_allowed,
+                            "redistribution_allowed": font.redistribution_allowed,
+                        },
+                        "after": {
+                            "commercial_use_allowed": reconciled["commercial_use_allowed"],
+                            "video_use_allowed": reconciled["video_use_allowed"],
+                            "web_embedding_allowed": reconciled["web_embedding_allowed"],
+                            "redistribution_allowed": reconciled["redistribution_allowed"],
+                        },
+                    }
+                )
+                if dry_run:
+                    continue
+                conn.execute(
+                    """
+                    UPDATE fonts
+                    SET commercial_use_allowed = ?,
+                        video_use_allowed = ?,
+                        web_embedding_allowed = ?,
+                        redistribution_allowed = ?
+                    WHERE font_id = ?
+                    """,
+                    (
+                        int(reconciled["commercial_use_allowed"]),
+                        int(reconciled["video_use_allowed"]),
+                        int(reconciled["web_embedding_allowed"]),
+                        int(reconciled["redistribution_allowed"]),
+                        font.font_id,
+                    ),
+                )
+            if not dry_run:
+                conn.commit()
+
+        return {
+            "source_site": target_source or "",
+            "dry_run": dry_run,
+            "inspected": inspected,
+            "changed": changed,
+            "unchanged": max(inspected - changed, 0),
+            "samples": samples[:25],
         }
 
     def _automation_profile(self, item) -> dict:
@@ -945,13 +1100,16 @@ class FontAgentService:
                 continue
             if language and language not in font.languages:
                 continue
-            if commercial_only and not font.commercial_use_allowed:
+            license_profile = self._license_profile(font)
+            if commercial_only and license_profile["status"] not in {"allowed", "caution"}:
                 continue
             if video_only and not font.video_use_allowed:
                 continue
             if web_embedding_only and not font.web_embedding_allowed:
                 continue
-            results.append(asdict(font))
+            serialized = asdict(font)
+            serialized["license_profile"] = license_profile
+            results.append(serialized)
         results.sort(
             key=lambda item: (
                 -self._search_relevance(item, query_tokens),
@@ -2968,11 +3126,13 @@ class FontAgentService:
         listing_url: str,
         output_dir: Path,
         limit: int = 20,
+        delay_seconds: float = 0.0,
     ) -> dict:
         snapshot = fetch_noonnu_snapshot(
             listing_url=listing_url,
             output_dir=output_dir,
             limit=limit,
+            delay_seconds=delay_seconds,
         )
         imported = self.import_noonnu(
             listing_html=Path(snapshot["listing_path"]),
@@ -2982,5 +3142,8 @@ class FontAgentService:
             "listing_path": snapshot["listing_path"],
             "detail_dir": snapshot["detail_dir"],
             "fetched_details": snapshot["fetched_details"],
+            "skipped_existing": snapshot.get("skipped_existing", 0),
+            "failed_count": snapshot.get("failed_count", 0),
+            "failed_details_path": snapshot.get("failed_details_path"),
             "imported": imported["imported"],
         }

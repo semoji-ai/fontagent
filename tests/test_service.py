@@ -14,7 +14,7 @@ from fontagent.curated_candidates import CURATED_CANDIDATE_SETS
 from fontagent.discovery import classify_candidate_status, get_discovery_queries, parse_duckduckgo_results
 from fontagent.font_system import pick_preferred_file
 from fontagent.interviews import build_interview_plan
-from fontagent.noonnu import fetch_noonnu_snapshot, parse_detail_html, parse_listing_html
+from fontagent.noonnu import fetch_noonnu_snapshot, parse_detail_html, parse_listing_html, parse_sitemap_xml
 from fontagent.official_sources import (
     fetch_cafe24_fonts,
     fetch_fontshare_fonts,
@@ -1450,6 +1450,188 @@ class FontAgentServiceTests(unittest.TestCase):
             self.assertTrue(by_id["manual-font"]["license_profile"]["review_required"])
             self.assertEqual(by_id["manual-font"]["automation_profile"]["status"], "manual")
 
+    def test_license_profile_distinguishes_unknown_local_from_explicitly_restricted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "system-font",
+                        "family": "System Font",
+                        "slug": "system-font",
+                        "source_site": "system_local",
+                        "source_page_url": "file:///System/Library/Fonts/SystemFont.ttf",
+                        "homepage_url": "",
+                        "license_id": "system_local",
+                        "license_summary": "로컬 macOS에 설치된 시스템 폰트입니다. 재배포 전 라이선스를 별도로 확인해야 합니다.",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["system"],
+                        "recommended_for": ["local_preview"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "installed_system",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "restricted-font",
+                        "family": "Restricted Font",
+                        "slug": "restricted-font",
+                        "source_site": "fixture",
+                        "source_page_url": "file://fixture/restricted",
+                        "homepage_url": "",
+                        "license_id": "fixture",
+                        "license_summary": "상업적 이용금지",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["display"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "summary-allowed-font",
+                        "family": "Summary Allowed Font",
+                        "slug": "summary-allowed-font",
+                        "source_site": "gongu_freefont",
+                        "source_page_url": "file://fixture/gongu",
+                        "homepage_url": "",
+                        "license_id": "gongu-license",
+                        "license_summary": "출처표시 *상업적 이용 및 변경 등 2차적 저작물 작성 가능 무료글꼴",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["gongu"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "zip_file",
+                        "download_url": "https://example.com/gongu.zip",
+                        "download_source": "canonical",
+                        "format": "zip",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            results = service.search(language="ko", include_failed=True)
+            by_id = {item["font_id"]: item for item in results}
+            commercial_results = service.search(language="ko", commercial_only=True, include_failed=True)
+            commercial_ids = {item["font_id"] for item in commercial_results}
+
+            self.assertEqual(by_id["system-font"]["license_profile"]["status"], "unknown")
+            self.assertEqual(by_id["system-font"]["license_profile"]["recommended_action"], "review_license_page")
+            self.assertEqual(by_id["restricted-font"]["license_profile"]["status"], "blocked")
+            self.assertEqual(by_id["summary-allowed-font"]["license_profile"]["status"], "caution")
+            self.assertIn(
+                "commercial_use_structured_flag_needs_review",
+                by_id["summary-allowed-font"]["license_profile"]["gaps"],
+            )
+            self.assertNotIn("system-font", commercial_ids)
+            self.assertNotIn("restricted-font", commercial_ids)
+            self.assertIn("summary-allowed-font", commercial_ids)
+
+    def test_reconcile_license_fields_updates_structured_flags_from_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "summary-allowed-font",
+                        "family": "Summary Allowed Font",
+                        "slug": "summary-allowed-font",
+                        "source_site": "gongu_freefont",
+                        "source_page_url": "file://fixture/gongu",
+                        "homepage_url": "",
+                        "license_id": "gongu-license",
+                        "license_summary": "출처표시 *상업적 이용 및 변경 등 2차적 저작물 작성 가능 무료글꼴",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["gongu"],
+                        "recommended_for": ["title"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "zip_file",
+                        "download_url": "https://example.com/gongu.zip",
+                        "download_source": "canonical",
+                        "format": "zip",
+                        "variable_font": False,
+                    },
+                    {
+                        "font_id": "system-font",
+                        "family": "System Font",
+                        "slug": "system-font",
+                        "source_site": "system_local",
+                        "source_page_url": "file:///System/Library/Fonts/SystemFont.ttf",
+                        "homepage_url": "",
+                        "license_id": "system_local",
+                        "license_summary": "로컬 macOS에 설치된 시스템 폰트입니다. 재배포 전 라이선스를 별도로 확인해야 합니다.",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["system"],
+                        "recommended_for": ["local_preview"],
+                        "preview_text_ko": "테스트",
+                        "preview_text_en": "Test",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "installed_system",
+                        "format": "ttf",
+                        "variable_font": False,
+                    },
+                ]
+            }
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            service = FontAgentService(root)
+            service.init()
+
+            dry_run = service.reconcile_license_fields(dry_run=True)
+            self.assertEqual(dry_run["changed"], 1)
+            self.assertEqual(service.repository.get_font("summary-allowed-font").commercial_use_allowed, False)
+
+            applied = service.reconcile_license_fields()
+            updated = service.repository.get_font("summary-allowed-font")
+            system_font = service.repository.get_font("system-font")
+
+            self.assertEqual(applied["changed"], 1)
+            self.assertTrue(updated.commercial_use_allowed)
+            self.assertFalse(updated.video_use_allowed)
+            self.assertFalse(updated.web_embedding_allowed)
+            self.assertFalse(updated.redistribution_allowed)
+            self.assertFalse(system_font.commercial_use_allowed)
+
     def test_license_policy_catalog_returns_known_sources(self) -> None:
         service = FontAgentService(Path("/Users/jleavens_macmini/Projects/fontagent"))
         result = service.license_policy_catalog()
@@ -2497,6 +2679,18 @@ class FontAgentServiceTests(unittest.TestCase):
         self.assertTrue(detail.download_url.endswith(".zip"))
         self.assertIn("상업적", detail.license_summary)
 
+    def test_parse_noonnu_sitemap(self) -> None:
+        sitemap_xml = """
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://noonnu.cc/font_page/maru-buri</loc></url>
+          <url><loc>https://noonnu.cc/font_page/suit</loc></url>
+          <url><loc>https://noonnu.cc/market/fonts/demo</loc></url>
+        </urlset>
+        """
+        listing = parse_sitemap_xml(sitemap_xml)
+        self.assertEqual([item.slug for item in listing], ["maru-buri", "suit"])
+        self.assertEqual(listing[0].source_page_url, "https://noonnu.cc/font_page/maru-buri")
+
     def test_parse_noonnu_live_style_detail(self) -> None:
         detail = parse_detail_html(
             Path("/Users/jleavens_macmini/Projects/fontagent/examples/noonnu_snapshot/details/1269.html").read_text(
@@ -2614,7 +2808,13 @@ class FontAgentServiceTests(unittest.TestCase):
 
     def test_fetch_noonnu_snapshot_with_mocked_http(self) -> None:
         fixtures = Path("/Users/jleavens_macmini/Projects/fontagent/tests/fixtures/noonnu")
-        listing_html = (fixtures / "listing.html").read_text(encoding="utf-8")
+        listing_html = '<html><body><a href="/font_page/maru-buri">MaruBuri</a></body></html>'
+        sitemap_xml = """
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://noonnu.cc/font_page/maru-buri</loc></url>
+          <url><loc>https://noonnu.cc/font_page/suit</loc></url>
+        </urlset>
+        """
         maru_html = (fixtures / "maru-buri.html").read_text(encoding="utf-8")
         suit_html = (fixtures / "suit.html").read_text(encoding="utf-8")
 
@@ -2635,6 +2835,8 @@ class FontAgentServiceTests(unittest.TestCase):
             url = request.full_url
             if url == "https://noonnu.cc/":
                 return FakeResponse(listing_html)
+            if url == "https://noonnu.cc/sitemap.xml":
+                return FakeResponse(sitemap_xml)
             if url.endswith("/font_page/maru-buri"):
                 return FakeResponse(maru_html)
             if url.endswith("/font_page/suit"):
@@ -2650,7 +2852,105 @@ class FontAgentServiceTests(unittest.TestCase):
                 )
             self.assertEqual(result["fetched_details"], 2)
             self.assertTrue((Path(tmp) / "listing.html").exists())
+            self.assertTrue((Path(tmp) / "listing.source.html").exists())
+            self.assertTrue((Path(tmp) / "sitemap.xml").exists())
             self.assertTrue((Path(tmp) / "details" / "maru-buri.html").exists())
+            self.assertTrue((Path(tmp) / "details" / "suit.html").exists())
+            listing = parse_listing_html((Path(tmp) / "listing.html").read_text(encoding="utf-8"))
+            self.assertEqual([item.slug for item in listing], ["maru-buri", "suit"])
+            self.assertEqual(result["summary_count"], 2)
+            self.assertEqual(result["listing_summary_count"], 1)
+            self.assertEqual(result["sitemap_summary_count"], 2)
+            self.assertEqual(result["skipped_existing"], 0)
+            self.assertEqual(result["failed_count"], 0)
+
+    def test_fetch_noonnu_snapshot_records_failed_details(self) -> None:
+        listing_html = '<html><body><a href="/font_page/maru-buri">MaruBuri</a></body></html>'
+        sitemap_xml = """
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://noonnu.cc/font_page/maru-buri</loc></url>
+          <url><loc>https://noonnu.cc/font_page/suit</loc></url>
+        </urlset>
+        """
+        fixtures = Path("/Users/jleavens_macmini/Projects/fontagent/tests/fixtures/noonnu")
+        maru_html = (fixtures / "maru-buri.html").read_text(encoding="utf-8")
+
+        class FakeResponse:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+            def read(self) -> bytes:
+                return self.text.encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        def fake_urlopen(request, timeout=30):
+            url = request.full_url
+            if url == "https://noonnu.cc/":
+                return FakeResponse(listing_html)
+            if url == "https://noonnu.cc/sitemap.xml":
+                return FakeResponse(sitemap_xml)
+            if url.endswith("/font_page/maru-buri"):
+                return FakeResponse(maru_html)
+            if url.endswith("/font_page/suit"):
+                raise OSError("Too Many Requests")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("fontagent.http_utils.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = fetch_noonnu_snapshot(
+                    listing_url="https://noonnu.cc/",
+                    output_dir=Path(tmp),
+                    limit=2,
+                )
+            self.assertEqual(result["fetched_details"], 1)
+            self.assertEqual(result["failed_count"], 1)
+            self.assertTrue((Path(tmp) / "failed_details.json").exists())
+
+    def test_fetch_noonnu_snapshot_skips_existing_details(self) -> None:
+        listing_html = '<html><body><a href="/font_page/maru-buri">MaruBuri</a></body></html>'
+        fixtures = Path("/Users/jleavens_macmini/Projects/fontagent/tests/fixtures/noonnu")
+        maru_html = (fixtures / "maru-buri.html").read_text(encoding="utf-8")
+
+        class FakeResponse:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+            def read(self) -> bytes:
+                return self.text.encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return None
+
+        def fake_urlopen(request, timeout=30):
+            url = request.full_url
+            if url == "https://noonnu.cc/":
+                return FakeResponse(listing_html)
+            if url == "https://noonnu.cc/sitemap.xml":
+                raise OSError("missing")
+            if url.endswith("/font_page/maru-buri"):
+                raise AssertionError("existing detail should not be fetched again")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            detail_dir = Path(tmp) / "details"
+            detail_dir.mkdir(parents=True, exist_ok=True)
+            (detail_dir / "maru-buri.html").write_text(maru_html, encoding="utf-8")
+            with mock.patch("fontagent.http_utils.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = fetch_noonnu_snapshot(
+                    listing_url="https://noonnu.cc/",
+                    output_dir=Path(tmp),
+                    limit=1,
+                )
+            self.assertEqual(result["fetched_details"], 0)
+            self.assertEqual(result["skipped_existing"], 1)
 
     def test_resolve_download_and_prepare_browser_task(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -27,6 +27,9 @@ def main() -> None:
     subparsers.add_parser("reference-status")
     subparsers.add_parser("reference-vault")
     subparsers.add_parser("license-policy-catalog")
+    reconcile_license_fields = subparsers.add_parser("reconcile-license-fields")
+    reconcile_license_fields.add_argument("--source-site")
+    reconcile_license_fields.add_argument("--dry-run", action="store_true")
     set_reference_vault = subparsers.add_parser("set-reference-vault")
     set_reference_vault.add_argument("--vault-root", required=True)
     set_reference_vault.add_argument("--vault-category", default="Fonts")
@@ -317,6 +320,7 @@ def main() -> None:
     fetch_noonnu.add_argument("--listing-url", default="https://noonnu.cc/")
     fetch_noonnu.add_argument("--output-dir", required=True)
     fetch_noonnu.add_argument("--limit", type=int, default=20)
+    fetch_noonnu.add_argument("--delay-seconds", type=float, default=0.25)
 
     scan_system = subparsers.add_parser("scan-system")
     scan_system.add_argument("--timeout", type=int, default=20)
@@ -346,6 +350,13 @@ def main() -> None:
             _print(service.get_reference_settings())
         elif args.command == "license-policy-catalog":
             _print(service.license_policy_catalog())
+        elif args.command == "reconcile-license-fields":
+            _print(
+                service.reconcile_license_fields(
+                    source_site=args.source_site,
+                    dry_run=args.dry_run,
+                )
+            )
         elif args.command == "set-reference-vault":
             _print(
                 service.save_reference_settings(
@@ -706,6 +717,7 @@ def main() -> None:
                     listing_url=args.listing_url,
                     output_dir=Path(args.output_dir),
                     limit=args.limit,
+                    delay_seconds=args.delay_seconds,
                 )
             )
         elif args.command == "scan-system":
