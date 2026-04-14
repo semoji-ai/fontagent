@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 from html import escape
 from pathlib import Path
@@ -8,31 +9,80 @@ from .models import FontRecord
 
 
 PRESET_MAP = {
-    "title-ko": {"size": 56, "sample_attr": "preview_text_ko", "label": "Title / Korean"},
-    "title-en": {"size": 56, "sample_attr": "preview_text_en", "label": "Title / English"},
-    "subtitle-ko": {"size": 38, "sample_attr": "preview_text_ko", "label": "Subtitle / Korean"},
-    "subtitle-en": {"size": 38, "sample_attr": "preview_text_en", "label": "Subtitle / English"},
-    "body-ko": {"size": 28, "sample_attr": "preview_text_ko", "label": "Body / Korean"},
-    "body-en": {"size": 28, "sample_attr": "preview_text_en", "label": "Body / English"},
+    "title-ko": {"size": 78, "family_size": 96, "sample_attr": "preview_text_ko", "label": "Title / Korean"},
+    "title-en": {"size": 78, "family_size": 96, "sample_attr": "preview_text_en", "label": "Title / English"},
+    "subtitle-ko": {"size": 56, "family_size": 88, "sample_attr": "preview_text_ko", "label": "Subtitle / Korean"},
+    "subtitle-en": {"size": 56, "family_size": 88, "sample_attr": "preview_text_en", "label": "Subtitle / English"},
+    "body-ko": {"size": 42, "family_size": 80, "sample_attr": "preview_text_ko", "label": "Body / Korean"},
+    "body-en": {"size": 42, "family_size": 80, "sample_attr": "preview_text_en", "label": "Body / English"},
+}
+
+FORMAT_MAP = {
+    ".ttf": "truetype",
+    ".otf": "opentype",
+    ".woff2": "woff2",
+    ".woff": "woff",
+    ".ttc": "truetype",
+    ".otc": "opentype",
+}
+
+MIME_MAP = {
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttc": "application/octet-stream",
+    ".otc": "application/octet-stream",
 }
 
 
-def render_preview_svg(font: FontRecord, preset: str = "title-ko", sample_text: str | None = None) -> str:
+def css_font_format(path: str) -> str:
+    return FORMAT_MAP.get(Path(path).suffix.lower(), "truetype")
+
+
+def font_data_uri(path: str) -> str:
+    file_path = Path(path)
+    mime = MIME_MAP.get(file_path.suffix.lower(), "application/octet-stream")
+    encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def render_preview_svg(
+    font: FontRecord,
+    preset: str = "title-ko",
+    sample_text: str | None = None,
+    font_face_src: str | None = None,
+    font_face_format: str | None = None,
+) -> str:
     config = PRESET_MAP.get(preset, PRESET_MAP["title-ko"])
     sample_text = sample_text or getattr(font, config["sample_attr"])
     family = escape(font.family)
     sample_text = escape(sample_text)
     label = escape(config["label"])
-    tags = ", ".join(font.tags[:5])
-    tags = escape(tags)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#f7f3ea"/>
-  <rect x="40" y="40" width="1120" height="550" rx="28" fill="#fffdf8" stroke="#d8cfbe" stroke-width="2"/>
-  <text x="80" y="110" font-size="28" font-family="Georgia, serif" fill="#7c6d54">{label}</text>
-  <text x="80" y="170" font-size="52" font-weight="700" font-family="Georgia, serif" fill="#1f1b16">{family}</text>
-  <text x="80" y="285" font-size="{config["size"]}" font-family="{family}, 'Apple SD Gothic Neo', sans-serif" fill="#16120e">{sample_text}</text>
-  <text x="80" y="520" font-size="24" font-family="Menlo, monospace" fill="#5d564b">{escape(font.license_summary)}</text>
-  <text x="80" y="560" font-size="22" font-family="Menlo, monospace" fill="#8a7f70">{tags}</text>
+    license_summary = escape(font.license_summary)
+    font_stack = f"{family}, 'Apple SD Gothic Neo', sans-serif"
+    font_face_block = ""
+    if font_face_src:
+        escaped_src = escape(font_face_src, quote=True)
+        format_name = escape(font_face_format or "truetype")
+        font_stack = "'FontAgentPreviewEmbedded', 'Apple SD Gothic Neo', sans-serif"
+        font_face_block = (
+            "<defs><style><![CDATA["
+            "@font-face {"
+            "font-family: 'FontAgentPreviewEmbedded';"
+            f"src: url('{escaped_src}') format('{format_name}');"
+            "font-display: swap;"
+            "}"
+            "]]></style></defs>"
+        )
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+  {font_face_block}
+  <rect width="1200" height="680" fill="#f7f3ea"/>
+  <rect x="18" y="18" width="1164" height="644" rx="30" fill="#fffdf8" stroke="#d8cfbe" stroke-width="2"/>
+  <text x="54" y="74" font-size="22" font-family="Georgia, serif" fill="#7c6d54">{label}</text>
+  <text x="54" y="164" font-size="{config["family_size"]}" font-weight="700" font-family="{font_stack}" fill="#17120e">{family}</text>
+  <text x="54" y="338" font-size="{config["size"]}" font-family="{font_stack}" fill="#17120e">{sample_text}</text>
+  <text x="54" y="618" font-size="21" font-family="Menlo, monospace" fill="#6c6256">{license_summary}</text>
 </svg>"""
 
 
@@ -41,6 +91,8 @@ def write_preview(
     output_dir: Path,
     preset: str = "title-ko",
     sample_text: str | None = None,
+    font_face_src: str | None = None,
+    font_face_format: str | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     suffix = ""
@@ -48,7 +100,13 @@ def write_preview(
         suffix = f"-{hashlib.sha1(sample_text.encode('utf-8')).hexdigest()[:10]}"
     output_path = output_dir / f"{font.font_id}-{preset}{suffix}.svg"
     output_path.write_text(
-        render_preview_svg(font, preset=preset, sample_text=sample_text),
+        render_preview_svg(
+            font,
+            preset=preset,
+            sample_text=sample_text,
+            font_face_src=font_face_src,
+            font_face_format=font_face_format,
+        ),
         encoding="utf-8",
     )
     return output_path

@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from .service import FontAgentService
+from .use_cases import get_use_case_preset
 
 
 INDEX_HTML = """<!doctype html>
@@ -38,11 +39,10 @@ INDEX_HTML = """<!doctype html>
         var(--bg);
     }
     a { color: inherit; }
-    .page { max-width: 1600px; margin: 0 auto; padding: 28px 20px 56px; }
+    .page { max-width: 1680px; margin: 0 auto; padding: 24px 18px 56px; }
     .hero {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
-      gap: 18px;
+      grid-template-columns: 1fr;
       margin-bottom: 18px;
     }
     .panel {
@@ -52,10 +52,20 @@ INDEX_HTML = """<!doctype html>
       padding: 20px;
       box-shadow: var(--shadow);
     }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
     .hero-copy h1 {
       margin: 0 0 10px;
-      font-size: clamp(42px, 5vw, 68px);
-      line-height: 0.96;
+      font-size: clamp(42px, 4.8vw, 72px);
+      line-height: 0.94;
       letter-spacing: -0.04em;
     }
     .hero-copy p,
@@ -64,19 +74,19 @@ INDEX_HTML = """<!doctype html>
       color: var(--muted);
       line-height: 1.58;
     }
-    .hero-meta {
+    .workflow-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin-top: 18px;
     }
-    .metric {
+    .workflow-card {
       border: 1px solid var(--line);
       border-radius: 18px;
       padding: 14px;
       background: rgba(255,255,255,0.75);
     }
-    .metric strong {
+    .workflow-card strong {
       display: block;
       font-size: 12px;
       color: var(--muted);
@@ -84,14 +94,15 @@ INDEX_HTML = """<!doctype html>
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
-    .metric span {
-      font-size: 15px;
-      font-weight: 700;
-      line-height: 1.35;
+    .workflow-card span {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.45;
     }
     .workspace {
       display: grid;
-      grid-template-columns: 380px minmax(0, 1fr);
+      grid-template-columns: 320px minmax(0, 1fr);
       gap: 18px;
       align-items: start;
     }
@@ -121,6 +132,45 @@ INDEX_HTML = """<!doctype html>
       letter-spacing: 0.08em;
     }
     .controls { display: grid; gap: 12px; }
+    .quick-preset-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .preset-chip {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+      text-align: left;
+      min-height: 96px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.78);
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .preset-chip strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+    .preset-chip span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .preset-chip.active {
+      border-color: var(--ink);
+      background: linear-gradient(180deg, #fff9ee 0%, #f6e8d0 100%);
+      box-shadow: inset 0 0 0 1px rgba(30,24,17,0.06);
+    }
+    .compact-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
     .label {
       display: block;
       margin: 0 0 6px;
@@ -249,6 +299,14 @@ INDEX_HTML = """<!doctype html>
       display: grid;
       gap: 18px;
     }
+    .decision-actions {
+      display: grid;
+      gap: 10px;
+    }
+    .decision-actions button.secondary {
+      background: var(--ink);
+      color: #fff;
+    }
     .canvas-shell {
       display: grid;
       gap: 14px;
@@ -376,9 +434,10 @@ INDEX_HTML = """<!doctype html>
     .result-card img {
       width: 100%;
       display: block;
-      aspect-ratio: 1200 / 630;
+      aspect-ratio: 1200 / 680;
       background: #faf7ef;
       border-bottom: 1px solid var(--line);
+      object-fit: cover;
     }
     .compare-card .body,
     .result-card .body {
@@ -399,10 +458,108 @@ INDEX_HTML = """<!doctype html>
       font-size: 12px;
       line-height: 1.4;
     }
-    .results {
+    .catalog-shell {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .catalog-toolbar {
+      display: grid;
+      grid-template-columns: 1.2fr 120px 150px auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .catalog-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .catalog-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .catalog-count {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 16px;
+    }
+    .catalog-card {
+      position: relative;
+      display: grid;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      overflow: hidden;
+      background: var(--panel);
+      min-width: 0;
+    }
+    .catalog-card img {
+      width: 100%;
+      display: block;
+      aspect-ratio: 1200 / 680;
+      background: #faf7ef;
+      border-bottom: 1px solid var(--line);
+      object-fit: cover;
+    }
+    .catalog-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+      backdrop-filter: blur(8px);
+      background: rgba(255,255,255,0.88);
+      border: 1px solid rgba(30,24,17,0.10);
+    }
+    .catalog-badge.ready {
+      color: #0f5132;
+      background: rgba(234, 247, 238, 0.94);
+    }
+    .catalog-badge.assisted {
+      color: #8a5312;
+      background: rgba(252, 242, 220, 0.94);
+    }
+    .catalog-badge.manual,
+    .catalog-badge.unknown {
+      color: #5e4a3a;
+      background: rgba(247, 238, 228, 0.94);
+    }
+    .catalog-badge.blocked {
+      color: #7a1f1f;
+      background: rgba(252, 228, 228, 0.94);
+    }
+    .catalog-pagination {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .catalog-pagination button {
+      width: auto;
+      min-width: 42px;
+      padding: 10px 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+    .catalog-pagination button.active {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
     }
     .rail.left .results {
       grid-template-columns: 1fr;
@@ -584,7 +741,7 @@ INDEX_HTML = """<!doctype html>
       font-weight: 700;
     }
     @media (max-width: 1320px) {
-      .workspace { grid-template-columns: 340px minmax(0, 1fr); }
+      .workspace { grid-template-columns: 300px minmax(0, 1fr); }
     }
     @media (max-width: 980px) {
       .hero,
@@ -592,7 +749,13 @@ INDEX_HTML = """<!doctype html>
       .rail { position: static; }
       .stack-2,
       .stack-3 { grid-template-columns: 1fr; }
-      .hero-meta { grid-template-columns: 1fr; }
+      .workflow-strip,
+      .quick-preset-grid,
+      .catalog-toolbar { grid-template-columns: 1fr; }
+      .catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .catalog-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -600,40 +763,21 @@ INDEX_HTML = """<!doctype html>
   <div class="page">
     <section class="hero">
       <article class="panel hero-copy">
+        <div class="eyebrow">Typography Decision Board</div>
         <h1>FontAgent</h1>
-        <p>폰트 특화 에이전트의 역할은 “예쁜 결과 만들기”보다 타이포 의사결정을 돕고, 라이선스를 검토하고, 프로젝트에 적용 가능한 폰트 시스템을 만들어 디자인 에이전트로 넘기는 것입니다.</p>
-        <div class="hero-meta">
-          <div class="metric">
-            <strong>Decision Console</strong>
-            <span>입력 조건, 후보 비교, 프로젝트 handoff를 한 화면에서 정리합니다.</span>
+        <p>후보 폰트를 비교하고, 역할별 조합을 정한 뒤, 프로젝트용 font system과 typography handoff로 내보내는 대시보드입니다.</p>
+        <div class="workflow-strip">
+          <div class="workflow-card">
+            <strong>1. Choose A Starting Point</strong>
+            <span>빠른 시작 프리셋으로 현재 결정하려는 타이포 상황을 먼저 고릅니다.</span>
           </div>
-          <div class="metric">
-            <strong>Typography Scope</strong>
-            <span>검색, 추천, 라이선스, 페어링, 설치, font system까지 담당합니다.</span>
+          <div class="workflow-card">
+            <strong>2. Compare Candidates</strong>
+            <span>같은 문구를 나란히 보면서 어떤 가족이 역할에 맞는지 빠르게 걸러냅니다.</span>
           </div>
-          <div class="metric">
-            <strong>Collaboration</strong>
-            <span>레이아웃과 컬러는 디자인 에이전트가 맡고, FontAgent는 타이포 시스템을 넘깁니다.</span>
-          </div>
-        </div>
-      </article>
-      <article class="panel">
-        <div class="section-title">
-          <h2>현재 작업 초점</h2>
-          <span>Typography First</span>
-        </div>
-        <div class="summary-grid">
-          <div class="summary-card">
-            <strong>Search</strong>
-            <div>매체, 역할, 톤, 라이선스 조건을 기준으로 좁힙니다.</div>
-          </div>
-          <div class="summary-card">
-            <strong>Compare</strong>
-            <div>같은 문구를 나란히 보여줘서 display 적합도를 빠르게 비교합니다.</div>
-          </div>
-          <div class="summary-card">
-            <strong>Handoff</strong>
-            <div>font system, hints, collaboration boundary를 디자인 에이전트에게 넘깁니다.</div>
+          <div class="workflow-card">
+            <strong>3. Export The System</strong>
+            <span>결정이 끝나면 font system, template bundle, handoff를 생성해 다음 에이전트로 넘깁니다.</span>
           </div>
         </div>
       </article>
@@ -643,72 +787,28 @@ INDEX_HTML = """<!doctype html>
       <aside class="rail left">
         <section class="panel">
           <div class="section-title">
-            <h3>가이드 인터뷰</h3>
-            <span>Guided Intake</span>
+            <h3>Quick Start</h3>
+            <span>Choose What To Decide</span>
           </div>
           <div class="controls">
-            <div class="stack-2">
-              <div>
-                <label class="label" for="interviewCategory">Category</label>
-                <select id="interviewCategory"></select>
-              </div>
-              <div>
-                <label class="label" for="interviewSubcategory">Subcategory</label>
-                <select id="interviewSubcategory"></select>
-              </div>
-            </div>
-            <div id="interviewQuestions" class="question-list"></div>
-            <button onclick="runInterviewRecommend()">인터뷰 기반 추천</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="section-title">
-            <h3>입력 조건</h3>
-            <span>Search / Recommend</span>
-          </div>
-          <div class="controls">
-            <div>
-              <label class="label" for="query">Search Query</label>
-              <input id="query" value="documentary title" placeholder="예: documentary subtitle serif" />
+            <div id="quickPresetGrid" class="quick-preset-grid"></div>
+            <div id="presetSummary" class="summary-card">
+              <strong>Active Preset</strong>
+              <div>첫 시작 프리셋을 고르면 이 영역이 현재 타이포 결정 질문을 설명합니다.</div>
             </div>
             <div class="stack-2">
+              <div>
+                <label class="label" for="useCase">Use Case</label>
+                <select id="useCase"></select>
+              </div>
               <div>
                 <label class="label" for="language">Language</label>
                 <input id="language" value="ko" placeholder="ko / en" />
               </div>
-              <div>
-                <label class="label" for="useCase">Use Case</label>
-                <select id="useCase">
-                  <option value="">직접 task 사용</option>
-                  <option value="documentary-landing-ko">다큐 랜딩 페이지</option>
-                  <option value="youtube-thumbnail-ko">유튜브 썸네일</option>
-                  <option value="poster-headline">포스터 헤드라인</option>
-                  <option value="presentation-cover">프레젠테이션 커버</option>
-                </select>
-              </div>
             </div>
             <div>
-              <label class="label" for="task">Task</label>
-              <textarea id="task">history documentary title</textarea>
-            </div>
-            <div class="stack-3">
-              <div>
-                <label class="label" for="medium">Medium</label>
-                <input id="medium" value="video" placeholder="video / web / print" />
-              </div>
-              <div>
-                <label class="label" for="surface">Surface</label>
-                <input id="surface" value="thumbnail" placeholder="thumbnail / landing_hero" />
-              </div>
-              <div>
-                <label class="label" for="role">Primary Role</label>
-                <input id="role" value="title" placeholder="title / subtitle / body" />
-              </div>
-            </div>
-            <div>
-              <label class="label" for="tones">Tones</label>
-              <input id="tones" value="cinematic,retro" placeholder="cinematic, retro, editorial" />
+              <label class="label" for="task">Task Brief</label>
+              <textarea id="task">youtube video thumbnail title cinematic display korean</textarea>
             </div>
             <div>
               <label class="label" for="sampleText">Compare Sample</label>
@@ -720,12 +820,80 @@ INDEX_HTML = """<!doctype html>
               <label><input id="webEmbedding" type="checkbox" /> 웹 임베딩</label>
             </div>
             <div class="stack-2">
-              <button onclick="runSearch()">검색</button>
+              <button onclick="runUseCaseRecommend()">추천 갱신</button>
               <button class="secondary" onclick="runRecommend()">task 추천</button>
             </div>
-            <button class="ghost" onclick="runUseCaseRecommend()">구조화 용도 추천</button>
+            <button class="ghost" onclick="runSearch()">자유 검색</button>
+            <p class="compact-note">핵심은 후보 비교입니다. 검색은 보조 수단이고, 현재 프리셋에 맞는 role/medium/surface는 아래 Advanced에서 수정할 수 있습니다.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <h3>Commit / Export</h3>
+            <span>Project Outputs</span>
+          </div>
+          <div class="decision-actions">
+            <button class="secondary" onclick="prepareFontSystem()">폰트 시스템 생성</button>
+            <button onclick="generateTemplateBundle()">템플릿 번들 생성</button>
+            <button class="ghost" onclick="generateTypographyHandoff()">Typography Handoff 생성</button>
+            <p class="compact-note">비교가 끝난 뒤에는 이 패널에서 프로젝트용 산출물을 만들고, drawer에서 결과 경로를 확인합니다.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <h3>Advanced Controls</h3>
+            <span>Optional</span>
+          </div>
+          <div class="controls">
             <details>
-              <summary>고급 설정 / 출력 경로</summary>
+              <summary>검색 / 구조화 입력</summary>
+              <div class="controls" style="margin-top:12px;">
+                <div>
+                  <label class="label" for="query">Search Query</label>
+                  <input id="query" value="documentary title" placeholder="예: documentary subtitle serif" />
+                </div>
+                <div class="stack-3">
+                  <div>
+                    <label class="label" for="medium">Medium</label>
+                    <input id="medium" value="video" placeholder="video / web / print" />
+                  </div>
+                  <div>
+                    <label class="label" for="surface">Surface</label>
+                    <input id="surface" value="thumbnail" placeholder="thumbnail / landing_hero" />
+                  </div>
+                  <div>
+                    <label class="label" for="role">Primary Role</label>
+                    <input id="role" value="title" placeholder="title / subtitle / body" />
+                  </div>
+                </div>
+                <div>
+                  <label class="label" for="tones">Tones</label>
+                  <input id="tones" value="cinematic, display" placeholder="cinematic, retro, editorial" />
+                </div>
+              </div>
+            </details>
+            <details>
+              <summary>가이드 인터뷰</summary>
+              <div class="controls" style="margin-top:12px;">
+                <div class="stack-2">
+                  <div>
+                    <label class="label" for="interviewCategory">Category</label>
+                    <select id="interviewCategory"></select>
+                  </div>
+                  <div>
+                    <label class="label" for="interviewSubcategory">Subcategory</label>
+                    <select id="interviewSubcategory"></select>
+                  </div>
+                </div>
+                <div id="interviewQuestions" class="question-list"></div>
+                <button onclick="runInterviewRecommend()">인터뷰 기반 추천</button>
+                <p class="compact-note">인터뷰는 방향이 모호할 때만 쓰는 보조 모드입니다. 메인 워크플로는 위의 프리셋과 후보 비교입니다.</p>
+              </div>
+            </details>
+            <details>
+              <summary>출력 경로 / 설치 액션</summary>
               <div class="controls" style="margin-top:12px;">
                 <div>
                   <label class="label" for="projectPath">Project Path</label>
@@ -745,20 +913,12 @@ INDEX_HTML = """<!doctype html>
             </details>
           </div>
         </section>
-
-        <section class="panel">
-          <div class="section-title">
-            <h3>폰트 리스트</h3>
-            <span>Preview / Actions</span>
-          </div>
-          <div id="results" class="results"></div>
-        </section>
       </aside>
 
       <main class="main">
         <section class="panel">
           <div class="section-title">
-            <h2>요청 요약</h2>
+            <h2>Current Decision</h2>
             <span>Request Brief</span>
           </div>
           <div id="requestSummary" class="empty">검색이나 추천을 실행하면 현재 medium, surface, role, tone, 라이선스 조건이 이 영역에 정리됩니다.</div>
@@ -766,23 +926,62 @@ INDEX_HTML = """<!doctype html>
 
         <section class="panel">
           <div class="section-title">
-            <h2>기본 타이포 캔버스</h2>
-            <span>Guided Preview</span>
+            <h2>Compare Candidates</h2>
+            <span>Preview / Actions</span>
           </div>
-          <div id="interviewCanvas" class="empty">카테고리와 세부 카테고리를 고른 뒤 인터뷰 기반 추천을 실행하면, 기본 레이아웃과 role별 폰트 시스템이 여기에 배치됩니다.</div>
-          <div class="canvas-toolbar">
-            <button class="secondary" onclick="prepareFontSystem()">폰트 시스템 보기</button>
-            <button onclick="generateTemplateBundle()">템플릿 보기</button>
-            <button class="secondary" onclick="generateTypographyHandoff()">handoff 보기</button>
+          <div id="compare" class="compare-wrap empty">상위 후보를 같은 문구로 나란히 보여줍니다.</div>
+          <div style="margin-top:18px;">
+            <div class="section-title" style="margin-bottom:12px;">
+              <h3>Applicable Font Catalog</h3>
+              <span>Noonnu-Style Gallery</span>
+            </div>
+            <div class="catalog-shell">
+              <div class="catalog-toolbar">
+                <div>
+                  <label class="label" for="catalogQuery">Catalog Search</label>
+                  <input id="catalogQuery" value="" placeholder="폰트 이름, 태그, 출처 검색" />
+                </div>
+                <div>
+                  <label class="label" for="catalogLanguage">Language</label>
+                  <select id="catalogLanguage">
+                    <option value="">all</option>
+                    <option value="ko" selected>ko</option>
+                    <option value="en">en</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label" for="catalogPreset">Specimen</label>
+                  <select id="catalogPreset">
+                    <option value="title-ko">Title / Korean</option>
+                    <option value="subtitle-ko">Subtitle / Korean</option>
+                    <option value="body-ko">Body / Korean</option>
+                    <option value="title-en">Title / English</option>
+                    <option value="subtitle-en">Subtitle / English</option>
+                    <option value="body-en">Body / English</option>
+                  </select>
+                </div>
+                <button onclick="refreshCatalog()">갤러리 새로고침</button>
+              </div>
+              <div class="catalog-summary">
+                <div class="catalog-toggles checkbox-row">
+                  <label><input id="catalogCommercialOnly" type="checkbox" checked /> 상업 사용</label>
+                  <label><input id="catalogVideoOnly" type="checkbox" /> 영상 사용</label>
+                  <label><input id="catalogWebOnly" type="checkbox" /> 웹 임베딩</label>
+                </div>
+                <div id="catalogCount" class="catalog-count">현재 조건에 맞는 전체 카탈로그를 불러오면 수량이 여기 표시됩니다.</div>
+              </div>
+              <div id="catalogGallery" class="catalog-grid"></div>
+              <div id="catalogPagination" class="catalog-pagination"></div>
+            </div>
           </div>
         </section>
 
         <section class="panel">
           <div class="section-title">
-            <h2>비교 미리보기</h2>
-            <span>Compare Candidates</span>
+            <h2>Typography Skeleton</h2>
+            <span>Optional Guided Preview</span>
           </div>
-          <div id="compare" class="compare-wrap empty">상위 후보를 같은 문구로 나란히 보여줍니다.</div>
+          <div id="interviewCanvas" class="empty">인터뷰 기반 추천을 실행하면 기본 레이아웃과 role별 폰트 시스템이 여기에 배치됩니다.</div>
         </section>
       </main>
     </section>
@@ -829,6 +1028,92 @@ INDEX_HTML = """<!doctype html>
       handoff: null,
       interviewCatalog: {},
       interviewData: null,
+      useCases: {},
+      activePreset: '',
+      catalogCount: 0,
+      catalogPage: 1,
+      catalogTotalPages: 1,
+    };
+
+    const QUICK_PRESETS = {
+      'youtube-thumbnail-ko': {
+        label: '썸네일 제목',
+        description: '짧고 강한 display 제목 후보를 빠르게 비교합니다.',
+        use_case: 'youtube-thumbnail-ko',
+        task: 'youtube video thumbnail title cinematic display korean',
+        query: 'cinematic korean thumbnail title',
+        medium: 'video',
+        surface: 'thumbnail',
+        role: 'title',
+        tones: ['cinematic', 'display'],
+        language: 'ko',
+        sample_text: '지금 이 변화가 시장을 바꾼다',
+      },
+      'documentary-landing-ko': {
+        label: '랜딩 헤드라인',
+        description: '다큐/에디토리얼 무드의 hero headline 조합을 고릅니다.',
+        use_case: 'documentary-landing-ko',
+        task: 'documentary landing hero editorial title korean',
+        query: 'documentary landing editorial title',
+        medium: 'web',
+        surface: 'landing_hero',
+        role: 'title',
+        tones: ['editorial', 'documentary'],
+        language: 'ko',
+        sample_text: '한 시대의 균열은 문장보다 먼저 제목에서 드러난다',
+      },
+      'poster-headline': {
+        label: '포스터 헤드라인',
+        description: '굵고 존재감 큰 headline 가족을 poster 기준으로 비교합니다.',
+        use_case: 'poster-headline',
+        task: 'print poster headline display',
+        query: 'poster display headline',
+        medium: 'print',
+        surface: 'poster_headline',
+        role: 'title',
+        tones: ['poster', 'display'],
+        language: 'ko',
+        sample_text: '도시는 한 장의 포스터처럼 기억된다',
+      },
+      'presentation-cover': {
+        label: '슬라이드 커버',
+        description: 'deck 첫 장에 맞는 clean display 계열을 추립니다.',
+        use_case: 'presentation-cover',
+        task: 'presentation cover title display',
+        query: 'presentation cover title display',
+        medium: 'presentation',
+        surface: 'cover',
+        role: 'title',
+        tones: ['brand'],
+        language: 'ko',
+        sample_text: '2026 Strategic Narrative',
+      },
+      'video-subtitle': {
+        label: '영상 자막',
+        description: '읽기 속도와 안정성이 중요한 subtitle 후보를 비교합니다.',
+        use_case: 'video-subtitle',
+        task: 'video subtitle readable sans',
+        query: 'subtitle readable sans',
+        medium: 'video',
+        surface: 'subtitle_track',
+        role: 'subtitle',
+        tones: ['readable'],
+        language: 'ko',
+        sample_text: '가독성은 자막에서 가장 먼저 검증됩니다.',
+      },
+      'document-body': {
+        label: '문서 본문',
+        description: '긴 문단과 설명 블록에 버티는 readable body 계열을 고릅니다.',
+        use_case: 'document-body',
+        task: 'document body editorial readable',
+        query: 'document body editorial readable',
+        medium: 'document',
+        surface: 'body_copy',
+        role: 'body',
+        tones: ['editorial'],
+        language: 'ko',
+        sample_text: '본문은 오래 읽혀도 피로하지 않아야 합니다.',
+      },
     };
 
     async function postJson(url, payload) {
@@ -849,6 +1134,76 @@ INDEX_HTML = """<!doctype html>
         return '';
       }
       return `/artifacts?path=${encodeURIComponent(path)}`;
+    }
+
+    function useCaseLabel(name) {
+      if (!name) {
+        return 'custom';
+      }
+      return (QUICK_PRESETS[name] || {}).label || name;
+    }
+
+    function suggestedCatalogPreset(role, language) {
+      let base = 'title';
+      if (role === 'subtitle' || role === 'caption') {
+        base = 'subtitle';
+      } else if (role === 'body') {
+        base = 'body';
+      }
+      const suffix = language === 'en' ? 'en' : 'ko';
+      return `${base}-${suffix}`;
+    }
+
+    function renderQuickPresets() {
+      const container = document.getElementById('quickPresetGrid');
+      container.innerHTML = Object.entries(QUICK_PRESETS).map(([key, preset]) => `
+        <button class="preset-chip ${state.activePreset === key ? 'active' : ''}" onclick="applyQuickPreset('${esc(key)}')">
+          <strong>${esc(preset.label)}</strong>
+          <span>${esc(preset.description)}</span>
+        </button>
+      `).join('');
+    }
+
+    function renderPresetSummary(name) {
+      const preset = QUICK_PRESETS[name];
+      const container = document.getElementById('presetSummary');
+      if (!preset) {
+        container.innerHTML = `
+          <strong>Active Preset</strong>
+          <div>커스텀 입력 모드</div>
+          <small>현재는 직접 medium, surface, role, task를 조합해서 비교하는 상태입니다.</small>
+        `;
+        return;
+      }
+      container.innerHTML = `
+        <strong>Active Preset</strong>
+        <div>${esc(preset.label)} · ${esc(preset.medium)} / ${esc(preset.surface)} / ${esc(preset.role)}</div>
+        <small>${esc(preset.description)} ${esc((preset.tones || []).join(', '))}</small>
+      `;
+    }
+
+    function applyQuickPreset(name, options = {}) {
+      const preset = QUICK_PRESETS[name];
+      if (!preset) {
+        return;
+      }
+      state.activePreset = name;
+      document.getElementById('useCase').value = preset.use_case || '';
+      document.getElementById('language').value = preset.language || 'ko';
+      document.getElementById('task').value = preset.task || '';
+      document.getElementById('query').value = preset.query || '';
+      document.getElementById('medium').value = preset.medium || '';
+      document.getElementById('surface').value = preset.surface || '';
+      document.getElementById('role').value = preset.role || '';
+      document.getElementById('tones').value = (preset.tones || []).join(', ');
+      document.getElementById('sampleText').value = preset.sample_text || '';
+      document.getElementById('catalogLanguage').value = preset.language || 'ko';
+      document.getElementById('catalogPreset').value = suggestedCatalogPreset(preset.role, preset.language);
+      renderQuickPresets();
+      renderPresetSummary(name);
+      if (options.run !== false) {
+        runUseCaseRecommend();
+      }
     }
 
     function openDrawer(panel) {
@@ -889,6 +1244,25 @@ INDEX_HTML = """<!doctype html>
       document.getElementById(id).textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
     }
 
+    function setOptionalMono(id, data) {
+      const element = document.getElementById(id);
+      if (!element) {
+        return;
+      }
+      element.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    }
+
+    function previewAssetUrl(fontId, preset, sampleText) {
+      const params = new URLSearchParams({
+        font_id: fontId,
+        preset: preset || 'title-ko',
+      });
+      if (sampleText) {
+        params.set('sample_text', sampleText);
+      }
+      return `/fonts/preview.svg?${params.toString()}`;
+    }
+
     function currentRequest() {
       return {
         query: document.getElementById('query').value,
@@ -905,6 +1279,17 @@ INDEX_HTML = """<!doctype html>
           web_embedding: document.getElementById('webEmbedding').checked,
         },
       };
+    }
+
+    async function loadUseCases() {
+      const response = await fetch('/fonts/use-cases');
+      const data = await response.json();
+      state.useCases = data.use_cases || {};
+      const select = document.getElementById('useCase');
+      const options = ['<option value="">직접 입력</option>'].concat(
+        Object.keys(state.useCases).map((name) => `<option value="${esc(name)}">${esc(useCaseLabel(name))}</option>`)
+      );
+      select.innerHTML = options.join('');
     }
 
     async function loadInterviewCatalog() {
@@ -971,6 +1356,9 @@ INDEX_HTML = """<!doctype html>
       if (!request) {
         return;
       }
+      if (request.use_case !== undefined) {
+        document.getElementById('useCase').value = request.use_case || '';
+      }
       document.getElementById('medium').value = request.medium || '';
       document.getElementById('surface').value = request.surface || '';
       document.getElementById('role').value = request.role || '';
@@ -991,16 +1379,17 @@ INDEX_HTML = """<!doctype html>
       const tones = request.tones || [];
       const primaryLanguage = request.language || ((request.languages || []).find(Boolean)) || 'n/a';
       const constraints = request.constraints || {};
+      const useCase = request.use_case || state.activePreset || '';
       container.innerHTML = `
         <div class="summary-grid">
           <div class="summary-card">
-            <strong>Primary Context</strong>
+            <strong>Decision Context</strong>
             <div>${esc(request.medium || 'n/a')} / ${esc(request.surface || 'n/a')} / ${esc(request.role || 'n/a')}</div>
             <small>${esc(request.task || request.query || '')}</small>
           </div>
           <div class="summary-card">
-            <strong>Language & Use Case</strong>
-            <div>${esc(primaryLanguage)} · ${esc(request.use_case || 'custom')}</div>
+            <strong>Language & Starting Point</strong>
+            <div>${esc(primaryLanguage)} · ${esc(useCaseLabel(useCase))}</div>
             <small>${tones.length ? esc(tones.join(', ')) : 'tone 미지정'}</small>
           </div>
           <div class="summary-card">
@@ -1097,6 +1486,92 @@ INDEX_HTML = """<!doctype html>
         </article>
       `).join('');
       container.innerHTML = `<div class="compare-grid">${cards}</div>`;
+    }
+
+    function renderCatalogPagination(page, totalPages) {
+      const container = document.getElementById('catalogPagination');
+      if (!totalPages || totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+      }
+      const start = Math.max(1, page - 4);
+      const end = Math.min(totalPages, start + 8);
+      const buttons = [];
+      if (page > 1) {
+        buttons.push(`<button onclick="refreshCatalog(${page - 1})">이전</button>`);
+      }
+      for (let number = start; number <= end; number += 1) {
+        buttons.push(`<button class="${number === page ? 'active' : ''}" onclick="refreshCatalog(${number})">${number}</button>`);
+      }
+      if (page < totalPages) {
+        buttons.push(`<button onclick="refreshCatalog(${page + 1})">다음</button>`);
+      }
+      container.innerHTML = buttons.join('');
+    }
+
+    function catalogBadgeLabel(status) {
+      const normalized = (status || 'unknown').toLowerCase();
+      const labels = {
+        ready: 'AUTO READY',
+        assisted: 'AUTO ASSIST',
+        manual: 'AUTO MANUAL',
+        blocked: 'AUTO BLOCKED',
+        unknown: 'AUTO CHECK',
+      };
+      return labels[normalized] || labels.unknown;
+    }
+
+    function renderCatalog(results, meta = {}) {
+      const container = document.getElementById('catalogGallery');
+      const count = document.getElementById('catalogCount');
+      if (!results.length) {
+        count.textContent = '현재 카탈로그 조건에 맞는 폰트가 없습니다.';
+        container.innerHTML = '<div class="empty">조건을 조정해서 다시 불러와 보세요.</div>';
+        renderCatalogPagination(1, 1);
+        return;
+      }
+      const preset = document.getElementById('catalogPreset').value || 'title-ko';
+      const sampleText = document.getElementById('sampleText').value;
+      const page = meta.page || 1;
+      const totalPages = meta.total_pages || 1;
+      const totalCount = meta.count || results.length;
+      count.textContent = `${totalCount}개 폰트 중 ${page} / ${totalPages} 페이지입니다. 한 번에 20개씩 보여줍니다.`;
+      container.innerHTML = results.map((font) => {
+        const previewUrl = previewAssetUrl(font.font_id, preset, sampleText);
+        const automationProfile = font.automation_profile || {};
+        const badgeStatus = automationProfile.status || 'unknown';
+        return `
+          <article class="catalog-card">
+            <div class="catalog-badge ${esc(badgeStatus)}">${esc(catalogBadgeLabel(badgeStatus))}</div>
+            <img loading="lazy" src="${previewUrl}" alt="${esc(font.family)} catalog preview" />
+          </article>
+        `;
+      }).join('');
+      renderCatalogPagination(page, totalPages);
+    }
+
+    async function refreshCatalog(page = 1) {
+      const query = document.getElementById('catalogQuery').value;
+      const language = document.getElementById('catalogLanguage').value;
+      const commercialOnly = document.getElementById('catalogCommercialOnly').checked;
+      const videoOnly = document.getElementById('catalogVideoOnly').checked;
+      const webOnly = document.getElementById('catalogWebOnly').checked;
+      const params = new URLSearchParams({
+        query,
+        language,
+        commercial_only: String(commercialOnly),
+        video_only: String(videoOnly),
+        web_embedding_only: String(webOnly),
+        detail: 'compact',
+        page: String(page),
+        page_size: '20',
+      });
+      const response = await fetch(`/fonts/catalog?${params.toString()}`);
+      const data = await response.json();
+      state.catalogCount = data.count || 0;
+      state.catalogPage = data.page || 1;
+      state.catalogTotalPages = data.total_pages || 1;
+      renderCatalog(data.results || [], data);
     }
 
     function renderSystemSummary(data) {
@@ -1222,48 +1697,13 @@ INDEX_HTML = """<!doctype html>
     }
 
     async function renderResults(results) {
-      const container = document.getElementById('results');
       state.results = results || [];
       if (!state.results.length) {
-        container.innerHTML = '<div class="empty">결과가 없습니다.</div>';
         renderCompare([], []);
         return;
       }
       state.previews = await Promise.all(state.results.map((font) => enrichPreview(font.font_id, font.preview_preset)));
       renderCompare(state.results, state.previews);
-      container.innerHTML = state.results.map((font, index) => {
-        const previewUrl = state.previews[index] || '';
-        const licenseProfile = font.license_profile || {};
-        const automationProfile = font.automation_profile || {};
-        return `
-          <article class="result-card">
-            <img src="${previewUrl}" alt="${esc(font.family)} preview" />
-            <div class="body">
-              <h3>${esc(font.family)}</h3>
-              <span class="result-meta">${esc(font.source_site || '')} · ${esc(font.license_summary || '')}</span>
-              <div class="tag-list">
-                <span class="tag">license ${esc(licenseProfile.status || 'n/a')}</span>
-                <span class="tag">confidence ${esc(licenseProfile.confidence || 'n/a')}</span>
-                <span class="tag">automation ${esc(automationProfile.status || 'n/a')}</span>
-              </div>
-              <div class="tag-list">${renderTagList((font.tags || []).concat(font.recommended_for || []).slice(0, 10))}</div>
-              ${renderLines((font.why || []).slice(0, 3))}
-              <details>
-                <summary>raw / actions</summary>
-                <pre id="out-${esc(font.font_id)}" class="mono">font_id: ${esc(font.font_id)}</pre>
-                <div class="card-actions">
-                  <button onclick="installFont('${esc(font.font_id)}')">설치</button>
-                  <button class="secondary" onclick="exportCss('${esc(font.font_id)}')">CSS</button>
-                  <button class="secondary" onclick="exportRemotion('${esc(font.font_id)}')">Remotion</button>
-                  <button class="secondary" onclick="resolveDownload('${esc(font.font_id)}')">Resolve</button>
-                  <button class="secondary" onclick="prepareBrowserTask('${esc(font.font_id)}')">Browser Task</button>
-                  <button class="ghost" onclick="copyPreview('${previewUrl}')">Preview URL</button>
-                </div>
-              </details>
-            </div>
-          </article>
-        `;
-      }).join('');
     }
 
     async function runSearch() {
@@ -1292,6 +1732,7 @@ INDEX_HTML = """<!doctype html>
     async function runUseCaseRecommend() {
       const request = currentRequest();
       const data = await postJson('/fonts/recommend-use-case', {
+        use_case: request.use_case,
         medium: request.medium,
         surface: request.surface,
         role: request.role,
@@ -1300,7 +1741,12 @@ INDEX_HTML = """<!doctype html>
         constraints: request.constraints,
         count: 8,
       });
-      state.request = data.request || request;
+      state.request = {
+        ...(data.request || request),
+        use_case: request.use_case,
+        task: request.task,
+        query: data.query || request.query,
+      };
       renderRequestSummary(state.request);
       setMono('systemOut', data.request || data);
       await renderResults(data.results || []);
@@ -1318,7 +1764,11 @@ INDEX_HTML = """<!doctype html>
         count: 8,
       });
       state.interviewData = data;
-      state.request = data.request || null;
+      state.request = {
+        ...(data.request || {}),
+        use_case: document.getElementById('useCase').value,
+        task: data.query || document.getElementById('task').value,
+      };
       syncRequestFields(data.request || null);
       if (data.query) {
         document.getElementById('task').value = data.query;
@@ -1335,28 +1785,28 @@ INDEX_HTML = """<!doctype html>
     async function installFont(fontId) {
       const outputDir = document.getElementById('installDir').value;
       const data = await postJson('/fonts/install', {font_id: fontId, output_dir: outputDir});
-      setMono(`out-${fontId}`, data);
+      setOptionalMono(`out-${fontId}`, data);
     }
 
     async function exportCss(fontId) {
       const data = await postJson('/fonts/export/css', {font_id: fontId});
-      setMono(`out-${fontId}`, data.css || data);
+      setOptionalMono(`out-${fontId}`, data.css || data);
     }
 
     async function exportRemotion(fontId) {
       const data = await postJson('/fonts/export/remotion', {font_id: fontId});
-      setMono(`out-${fontId}`, data.remotion || data);
+      setOptionalMono(`out-${fontId}`, data.remotion || data);
     }
 
     async function resolveDownload(fontId) {
       const data = await postJson('/fonts/resolve-download', {font_id: fontId});
-      setMono(`out-${fontId}`, data);
+      setOptionalMono(`out-${fontId}`, data);
     }
 
     async function prepareBrowserTask(fontId) {
       const outputDir = document.getElementById('browserTaskDir').value;
       const data = await postJson('/fonts/prepare-browser-task', {font_id: fontId, output_dir: outputDir});
-      setMono(`out-${fontId}`, data);
+      setOptionalMono(`out-${fontId}`, data);
     }
 
     async function prepareFontSystem(withTemplates = false) {
@@ -1410,15 +1860,35 @@ INDEX_HTML = """<!doctype html>
 
     document.getElementById('interviewCategory').addEventListener('change', updateInterviewSubcategories);
     document.getElementById('interviewSubcategory').addEventListener('change', renderInterviewQuestions);
+    document.getElementById('useCase').addEventListener('change', (event) => {
+      const value = event.target.value;
+      if (QUICK_PRESETS[value]) {
+        applyQuickPreset(value, {run: false});
+        return;
+      }
+      state.activePreset = '';
+      renderQuickPresets();
+      renderPresetSummary('');
+    });
+    document.getElementById('catalogLanguage').addEventListener('change', refreshCatalog);
+    document.getElementById('catalogPreset').addEventListener('change', refreshCatalog);
+    document.getElementById('catalogCommercialOnly').addEventListener('change', refreshCatalog);
+    document.getElementById('catalogVideoOnly').addEventListener('change', refreshCatalog);
+    document.getElementById('catalogWebOnly').addEventListener('change', refreshCatalog);
 
     async function boot() {
+      await loadUseCases();
       await loadInterviewCatalog();
+      renderQuickPresets();
+      renderPresetSummary('');
+      applyQuickPreset('youtube-thumbnail-ko', {run: false});
       renderRequestSummary(currentRequest());
       renderInterviewCanvas(null);
       renderSystemSummary(null);
       renderTemplateBundle({});
       renderHandoffSummary(null);
-      await runInterviewRecommend();
+      await runUseCaseRecommend();
+      await refreshCatalog();
     }
 
     boot();
@@ -1426,6 +1896,47 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
+
+
+def resolve_recommend_use_case_payload(payload: dict) -> dict:
+    use_case = payload.get("use_case") or ""
+    medium = payload.get("medium", "")
+    surface = payload.get("surface", "")
+    role = payload.get("role", "")
+    tones = payload.get("tones")
+    if use_case:
+        preset = get_use_case_preset(use_case)
+        medium = medium or preset.get("medium", "")
+        surface = surface or preset.get("surface", "")
+        role = role or preset.get("role", "")
+        if not tones:
+            tones = preset.get("tones")
+    return {
+        "medium": medium,
+        "surface": surface,
+        "role": role,
+        "tones": tones,
+        "languages": payload.get("languages"),
+        "constraints": payload.get("constraints"),
+        "count": int(payload.get("count", 5)),
+        "include_failed": payload.get("include_failed", False),
+    }
+
+
+def paginate_catalog_results(results: list[dict], page: int, page_size: int) -> dict:
+    safe_page_size = max(1, page_size)
+    total_count = len(results)
+    total_pages = max(1, (total_count + safe_page_size - 1) // safe_page_size)
+    safe_page = min(max(1, page), total_pages)
+    start = (safe_page - 1) * safe_page_size
+    end = start + safe_page_size
+    return {
+        "count": total_count,
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "total_pages": total_pages,
+        "results": results[start:end],
+    }
 
 
 def make_handler(root: Path):
@@ -1449,7 +1960,7 @@ def make_handler(root: Path):
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_file(self, path: Path) -> None:
+        def _send_file(self, path: Path, cache_control: str | None = None) -> None:
             if not path.exists():
                 self._send_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
                 return
@@ -1458,6 +1969,8 @@ def make_handler(root: Path):
             self.send_response(200)
             self.send_header("Content-Type", mime or "application/octet-stream")
             self.send_header("Content-Length", str(len(data)))
+            if cache_control:
+                self.send_header("Cache-Control", cache_control)
             self.end_headers()
             self.wfile.write(data)
 
@@ -1469,6 +1982,34 @@ def make_handler(root: Path):
                 return
             if parsed.path == "/health":
                 self._send_json({"ok": True})
+                return
+            if parsed.path == "/fonts/preview.svg":
+                font_id = qs.get("font_id", [""])[0]
+                if not font_id:
+                    self._send_json({"error": "Missing font_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                preset = qs.get("preset", ["title-ko"])[0]
+                preview = service.preview(
+                    font_id,
+                    preset,
+                    sample_text=qs.get("sample_text", [""])[0] or None,
+                )
+                self._send_file(Path(preview["preview_path"]), cache_control="no-store")
+                return
+            if parsed.path == "/fonts/preview-asset":
+                font_id = qs.get("font_id", [""])[0]
+                if not font_id:
+                    self._send_json({"error": "Missing font_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                asset = service.prepare_preview_font_asset(
+                    font_id,
+                    qs.get("preset", ["title-ko"])[0],
+                )
+                asset_path = asset.get("asset_path", "")
+                if not asset_path:
+                    self._send_json({"error": "Preview asset unavailable"}, status=HTTPStatus.NOT_FOUND)
+                    return
+                self._send_file(Path(asset_path), cache_control="no-store")
                 return
             if parsed.path.startswith("/previews/"):
                 filename = Path(parsed.path).name
@@ -1487,8 +2028,27 @@ def make_handler(root: Path):
                     language=qs.get("language", [None])[0],
                     commercial_only=qs.get("commercial_only", ["false"])[0] == "true",
                     video_only=qs.get("video_only", ["false"])[0] == "true",
+                    web_embedding_only=qs.get("web_embedding_only", ["false"])[0] == "true",
+                    detail_level=qs.get("detail", ["full"])[0],
                 )
                 self._send_json({"results": results})
+                return
+            if parsed.path == "/fonts/catalog":
+                results = service.search(
+                    query=qs.get("query", [""])[0],
+                    language=qs.get("language", [None])[0],
+                    commercial_only=qs.get("commercial_only", ["false"])[0] == "true",
+                    video_only=qs.get("video_only", ["false"])[0] == "true",
+                    web_embedding_only=qs.get("web_embedding_only", ["false"])[0] == "true",
+                    detail_level=qs.get("detail", ["compact"])[0],
+                )
+                self._send_json(
+                    paginate_catalog_results(
+                        results,
+                        page=int(qs.get("page", ["1"])[0]),
+                        page_size=int(qs.get("page_size", ["20"])[0]),
+                    )
+                )
                 return
             if parsed.path == "/fonts/use-cases":
                 self._send_json(service.list_use_cases())
@@ -1528,16 +2088,17 @@ def make_handler(root: Path):
                     self._send_json({"results": results})
                     return
                 if parsed.path == "/fonts/recommend-use-case":
+                    use_case_payload = resolve_recommend_use_case_payload(payload)
                     self._send_json(
                         service.recommend_use_case(
-                            medium=payload.get("medium", ""),
-                            surface=payload.get("surface", ""),
-                            role=payload.get("role", ""),
-                            tones=payload.get("tones"),
-                            languages=payload.get("languages"),
-                            constraints=payload.get("constraints"),
-                            count=int(payload.get("count", 5)),
-                            include_failed=payload.get("include_failed", False),
+                            medium=use_case_payload["medium"],
+                            surface=use_case_payload["surface"],
+                            role=use_case_payload["role"],
+                            tones=use_case_payload["tones"],
+                            languages=use_case_payload["languages"],
+                            constraints=use_case_payload["constraints"],
+                            count=use_case_payload["count"],
+                            include_failed=use_case_payload["include_failed"],
                         )
                     )
                     return
@@ -1554,9 +2115,11 @@ def make_handler(root: Path):
                     )
                     return
                 if parsed.path == "/fonts/preview":
+                    preset = payload.get("preset", "title-ko")
+                    font_id = payload["font_id"]
                     preview = service.preview(
-                        payload["font_id"],
-                        payload.get("preset", "title-ko"),
+                        font_id,
+                        preset,
                         sample_text=payload.get("sample_text"),
                     )
                     preview_name = Path(preview["preview_path"]).name

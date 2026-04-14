@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 from .curated_candidates import get_curated_candidates
 from .discovery import classify_candidate_status, discover_web_candidates
@@ -43,7 +44,7 @@ from .official_sources import (
     imported_candidate_urls_for_sources,
 )
 from .obsidian_export import export_reference_note, sync_reference_index
-from .preview import write_preview
+from .preview import css_font_format, font_data_uri, write_preview
 from .project_bootstrap import bootstrap_project
 from .reference_intelligence import build_reference_extraction_plan
 from .reference_image import extract_image_reference_payload
@@ -74,6 +75,8 @@ DEFAULT_OFFICIAL_IMPORT_SOURCES = (
     "jeju_official",
     "fontshare_display",
 )
+
+PREVIEW_FONT_SUFFIXES = {".ttf", ".otf", ".woff2", ".woff"}
 
 
 def _safe_fs_name(value: str) -> str:
@@ -137,6 +140,7 @@ class FontAgentService:
         self.db_path = self.root / "fontagent.db"
         self.cache_dir = self.root / ".cache" / "downloads"
         self.preview_dir = self.root / ".cache" / "previews"
+        self.preview_font_dir = self.root / ".cache" / "preview-font-assets"
         self.repository = FontRepository(self.db_path)
 
     def _reference_settings_path(self) -> Path:
@@ -918,6 +922,7 @@ class FontAgentService:
         language: Optional[str] = None,
         commercial_only: bool = False,
         video_only: bool = False,
+        web_embedding_only: bool = False,
         include_failed: bool = False,
         detail_level: str = "full",
     ) -> list[dict]:
@@ -943,6 +948,8 @@ class FontAgentService:
             if commercial_only and not font.commercial_use_allowed:
                 continue
             if video_only and not font.video_use_allowed:
+                continue
+            if web_embedding_only and not font.web_embedding_allowed:
                 continue
             results.append(asdict(font))
         results.sort(
@@ -1188,16 +1195,140 @@ class FontAgentService:
             "results": results,
         }
 
-    def preview(self, font_id: str, preset: str = "title-ko", sample_text: Optional[str] = None) -> dict:
+    def preview(
+        self,
+        font_id: str,
+        preset: str = "title-ko",
+        sample_text: Optional[str] = None,
+        font_face_src: Optional[str] = None,
+    ) -> dict:
         font = self.repository.get_font(font_id)
         if not font:
             raise KeyError(f"Unknown font: {font_id}")
-        output_path = write_preview(font, self.preview_dir, preset=preset, sample_text=sample_text)
+        asset = self.prepare_preview_font_asset(font_id, preset=preset)
+        preview_font_face_src = font_face_src or ""
+        font_face_format = ""
+        if asset.get("asset_path"):
+            preview_font_face_src = preview_font_face_src or font_data_uri(asset["asset_path"])
+            font_face_format = asset.get("asset_format", "")
+        output_path = write_preview(
+            font,
+            self.preview_dir,
+            preset=preset,
+            sample_text=sample_text,
+            font_face_src=preview_font_face_src or None,
+            font_face_format=font_face_format or None,
+        )
         return {
             "font_id": font_id,
             "preset": preset,
             "sample_text": sample_text or "",
             "preview_path": str(output_path),
+            "actual_font_preview": bool(preview_font_face_src),
+            "font_asset_path": asset.get("asset_path", ""),
+            "font_asset_format": font_face_format,
+            "font_asset_status": asset.get("status", "unavailable"),
+            "font_asset_message": asset.get("message", ""),
+        }
+
+    def _preview_role_for_preset(self, preset: str) -> str:
+        role = str(preset or "title-ko").split("-", 1)[0].strip().lower()
+        if role in {"title", "subtitle", "body"}:
+            return role
+        return "title"
+
+    def _preview_candidate_files(self, directory: Path) -> list[str]:
+        if not directory.exists():
+            return []
+        return sorted(
+            str(path)
+            for path in directory.rglob("*")
+            if path.is_file() and path.suffix.lower() in PREVIEW_FONT_SUFFIXES
+        )
+
+    def _select_preview_asset(self, candidates: list[str], role: str, family_hint: str) -> str:
+        if not candidates:
+            return ""
+        return pick_preferred_file(candidates, role, family_hint=family_hint)
+
+    def _resolve_system_preview_asset(self, font) -> str:
+        parsed = urlparse(font.source_page_url or "")
+        if parsed.scheme != "file":
+            return ""
+        candidate = Path(unquote(parsed.path or ""))
+        if not candidate.exists():
+            return ""
+        if candidate.suffix.lower() not in PREVIEW_FONT_SUFFIXES:
+            return ""
+        return str(candidate.resolve())
+
+    def prepare_preview_font_asset(self, font_id: str, preset: str = "title-ko") -> dict:
+        font = self.repository.get_font(font_id)
+        if not font:
+            raise KeyError(f"Unknown font: {font_id}")
+
+        role = self._preview_role_for_preset(preset)
+        cached_dir = self.preview_font_dir / font.font_id
+        cached_asset = self._select_preview_asset(
+            self._preview_candidate_files(cached_dir),
+            role,
+            font.family,
+        )
+        if cached_asset:
+            return {
+                "font_id": font_id,
+                "status": "cached",
+                "asset_path": cached_asset,
+                "asset_format": css_font_format(cached_asset),
+            }
+
+        local_asset = self._resolve_system_preview_asset(font)
+        if local_asset:
+            return {
+                "font_id": font_id,
+                "status": "local_system",
+                "asset_path": local_asset,
+                "asset_format": css_font_format(local_asset),
+            }
+
+        if font.download_type not in {"direct_file", "zip_file"} or not font.download_url:
+            return {
+                "font_id": font_id,
+                "status": "unavailable",
+                "asset_path": "",
+                "asset_format": "",
+                "message": "preview_asset_unavailable",
+            }
+
+        try:
+            install_result = install_font(font, cache_dir=self.cache_dir, output_dir=cached_dir)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "font_id": font_id,
+                "status": "error",
+                "asset_path": "",
+                "asset_format": "",
+                "message": str(exc),
+            }
+
+        installed_files = [
+            path for path in install_result.get("installed_files", [])
+            if Path(path).suffix.lower() in PREVIEW_FONT_SUFFIXES and Path(path).exists()
+        ]
+        selected = self._select_preview_asset(installed_files, role, font.family)
+        if selected:
+            return {
+                "font_id": font_id,
+                "status": install_result.get("status", "installed"),
+                "asset_path": selected,
+                "asset_format": css_font_format(selected),
+            }
+        return {
+            "font_id": font_id,
+            "status": install_result.get("status", "unavailable"),
+            "asset_path": "",
+            "asset_format": "",
+            "message": install_result.get("message", "preview_asset_unavailable"),
         }
 
     def _record_install_verification(self, font_id: str, result: dict) -> None:

@@ -245,6 +245,59 @@ class FontAgentServiceTests(unittest.TestCase):
             self.assertIn(".svg", preview["preview_path"])
             self.assertIn("Custom Comparison Text", Path(custom_preview["preview_path"]).read_text(encoding="utf-8"))
 
+    def test_preview_embeds_local_font_asset_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            font_file = root / "fixtures" / "FixtureDisplay-Regular.ttf"
+            font_file.parent.mkdir(parents=True, exist_ok=True)
+            font_file.write_bytes(b"fixture-font")
+
+            seed = {
+                "fonts": [
+                    {
+                        "font_id": "fixture-local",
+                        "family": "Fixture Local",
+                        "slug": "fixture-local",
+                        "source_site": "system_local",
+                        "source_page_url": font_file.resolve().as_uri(),
+                        "homepage_url": "",
+                        "license_id": "system_local",
+                        "license_summary": "로컬 테스트 폰트",
+                        "commercial_use_allowed": False,
+                        "video_use_allowed": False,
+                        "web_embedding_allowed": False,
+                        "redistribution_allowed": False,
+                        "languages": ["ko"],
+                        "tags": ["system", "installed", "local"],
+                        "recommended_for": ["local_preview"],
+                        "preview_text_ko": "실제 폰트 미리보기",
+                        "preview_text_en": "Actual Font Preview",
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "installed_system",
+                        "format": "ttf",
+                        "variable_font": False,
+                    }
+                ]
+            }
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                json.dumps(seed, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            service = FontAgentService(root)
+            service.init()
+
+            preview = service.preview("fixture-local", preset="title-ko")
+            preview_svg = Path(preview["preview_path"]).read_text(encoding="utf-8")
+
+            self.assertTrue(preview["actual_font_preview"])
+            self.assertEqual(preview["font_asset_status"], "local_system")
+            self.assertEqual(Path(preview["font_asset_path"]).resolve(), font_file.resolve())
+            self.assertIn("@font-face", preview_svg)
+            self.assertIn("data:font/ttf;base64,", preview_svg)
+
     def test_recommend_use_case_applies_constraints_and_preview_preset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
