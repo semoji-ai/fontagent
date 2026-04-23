@@ -95,36 +95,68 @@ def _connected_components(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
     return boxes
 
 
-def _merge_vertical_parts(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
-    """Merge boxes that sit above/below one another (dotted 'i', 'ㅎ', '한')."""
+def _estimate_em_square(boxes: list[tuple[int, int, int, int]]) -> int:
+    """Approximate one em-square in pixels from the detected boxes.
+
+    For a script like Latin where each letter is its own component, the
+    tallest components approximate the em. For Hangul where a syllable
+    decomposes into jamo, the widest/tallest fragment (often ㅏ/ㅣ or
+    the outer ㅁ/ㅇ bowl) still spans close to the full em.
+    """
+    if not boxes:
+        return 0
+    max_dims = sorted(max(box[2] - box[0], box[3] - box[1]) for box in boxes)
+    q75 = max_dims[int(len(max_dims) * 0.75)]
+    return int(q75 * 1.2)
+
+
+def _group_into_syllables(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """Merge connected components that fit together inside one em-square.
+
+    Latin scripts usually produce one component per letter; Hangul
+    syllables like '한' decompose into two or three disconnected jamo.
+    Heuristic: cluster components greedily left-to-right, adding the
+    next component to the current cluster if the resulting bounding box
+    still fits within a single em-square. Hangul jamo rejoin into a
+    syllable; Latin letters stay separate because their combined box
+    exceeds the em-square once you concatenate two characters.
+    """
     if not boxes:
         return boxes
-    merged = list(boxes)
-    changed = True
-    while changed:
-        changed = False
-        merged.sort(key=lambda b: (b[0], b[1]))
-        new_boxes: list[tuple[int, int, int, int]] = []
-        skip = set()
-        for i, box in enumerate(merged):
-            if i in skip:
-                continue
-            x0, y0, x1, y1 = box
-            for j in range(i + 1, len(merged)):
-                if j in skip:
-                    continue
-                bx0, by0, bx1, by1 = merged[j]
-                horizontal_overlap = min(x1, bx1) - max(x0, bx0)
-                width = min(x1 - x0, bx1 - bx0)
-                if horizontal_overlap >= 0.5 * width:
-                    x0 = min(x0, bx0)
-                    y0 = min(y0, by0)
-                    x1 = max(x1, bx1)
-                    y1 = max(y1, by1)
-                    skip.add(j)
+
+    em_square = _estimate_em_square(boxes)
+    if em_square <= 0:
+        return boxes
+
+    ordered = sorted(boxes, key=lambda b: (b[0], b[1]))
+    unused = list(ordered)
+    merged: list[tuple[int, int, int, int]] = []
+
+    while unused:
+        cluster = [unused.pop(0)]
+        changed = True
+        while changed:
+            changed = False
+            for candidate in list(unused):
+                cx0 = min(b[0] for b in cluster)
+                cy0 = min(b[1] for b in cluster)
+                cx1 = max(b[2] for b in cluster)
+                cy1 = max(b[3] for b in cluster)
+                nx0 = min(cx0, candidate[0])
+                ny0 = min(cy0, candidate[1])
+                nx1 = max(cx1, candidate[2])
+                ny1 = max(cy1, candidate[3])
+                if (nx1 - nx0) <= em_square and (ny1 - ny0) <= em_square:
+                    cluster.append(candidate)
+                    unused.remove(candidate)
                     changed = True
-            new_boxes.append((x0, y0, x1, y1))
-        merged = new_boxes
+        x0 = min(b[0] for b in cluster)
+        y0 = min(b[1] for b in cluster)
+        x1 = max(b[2] for b in cluster)
+        y1 = max(b[3] for b in cluster)
+        merged.append((x0, y0, x1, y1))
+
+    merged.sort(key=lambda b: (b[1] // max(1, em_square // 2), b[0]))
     return merged
 
 
@@ -138,8 +170,7 @@ def extract_glyph_crops(
     array = np.asarray(image, dtype=np.uint8)
     mask = _auto_threshold(array)
     boxes = _connected_components(mask)
-    boxes = _merge_vertical_parts(boxes)
-    boxes.sort(key=lambda b: (b[1] // max(1, (boxes[0][3] - boxes[0][1]) // 2 or 1) if boxes else 0, b[0]))
+    boxes = _group_into_syllables(boxes)
 
     crops: list[GlyphCrop] = []
     for bbox in boxes[:max_glyphs]:
