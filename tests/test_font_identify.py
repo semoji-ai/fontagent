@@ -199,5 +199,48 @@ class KoreanIdentificationTests(unittest.TestCase):
             self.assertIn(target_id, top_ids)
 
 
+@unittest.skipUnless(DEPENDENCIES_AVAILABLE, "Pillow/fontTools/numpy not installed")
+class DetectorRobustnessTests(unittest.TestCase):
+    def test_otsu_threshold_handles_thin_ink(self) -> None:
+        """Regression: an earlier heuristic produced an empty mask on
+        images whose ink pixels covered only a few percent of the area.
+        Ensure a synthetic thin-line image still yields a non-empty mask
+        and detects at least one component."""
+        import numpy as np
+
+        from fontagent.font_identify.detect import (
+            _auto_threshold,
+            _connected_components,
+        )
+
+        array = np.full((120, 600), 250, dtype=np.uint8)
+        # Four roughly square blobs of ink, thin enough that the old
+        # mean-based heuristic produced an empty mask.
+        for x in (40, 160, 320, 480):
+            array[40:80, x : x + 30] = 20
+
+        mask = _auto_threshold(array)
+        self.assertGreater(int((mask > 0).sum()), 0)
+        boxes = _connected_components(mask)
+        self.assertGreaterEqual(len(boxes), 4)
+
+    def test_dilation_reconnects_broken_strokes(self) -> None:
+        """A stroke split by a 1-pixel gap must rejoin after dilation so
+        the syllable merger sees a single component, not two."""
+        import numpy as np
+
+        from fontagent.font_identify.detect import _connected_components, _dilate
+
+        mask = np.zeros((40, 80), dtype=np.uint8)
+        mask[10:30, 10:30] = 255
+        mask[10:30, 33:50] = 255  # 3-pixel gap
+
+        before = _connected_components(mask)
+        self.assertEqual(len(before), 2)
+
+        after = _connected_components(_dilate(mask, radius=2))
+        self.assertEqual(len(after), 1)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

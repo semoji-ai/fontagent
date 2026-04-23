@@ -38,18 +38,39 @@ class GlyphCrop:
 
 
 def _auto_threshold(image: np.ndarray) -> np.ndarray:
-    """Return a 0/255 mask where ink is 255 regardless of polarity."""
-    values = image.astype(np.int32)
-    threshold = int(values.mean())
-    foreground = (values < threshold - 8).astype(np.uint8)
-    background = (values > threshold + 8).astype(np.uint8)
-    # Pick whichever polarity produced less area — text is usually
-    # the smaller of the two classes on presentation imagery.
-    if foreground.sum() > background.sum():
-        mask = background
+    """Return a 0/255 ink mask, auto-detecting polarity and threshold.
+
+    Uses Otsu's method to pick the inter-class-variance-maximizing cut,
+    then treats the minority class as ink. The previous heuristic
+    failed on thin handwriting fonts where "pixels darker than mean-8"
+    captured almost nothing, leaving an empty mask.
+    """
+    hist, _ = np.histogram(image, bins=256, range=(0, 256))
+    total = int(image.size)
+    if total == 0:
+        return np.zeros_like(image, dtype=np.uint8)
+    cumulative = np.cumsum(hist).astype(np.float64)
+    cumulative_mean = np.cumsum(hist * np.arange(256)).astype(np.float64)
+    global_mean = cumulative_mean[-1] / total
+
+    best_variance = 0.0
+    best_threshold = 128
+    for t in range(256):
+        w_bg = cumulative[t]
+        if w_bg == 0 or w_bg == total:
+            continue
+        mu_bg = cumulative_mean[t] / w_bg
+        mu_fg = (cumulative_mean[-1] - cumulative_mean[t]) / (total - w_bg)
+        variance = (w_bg * (total - w_bg)) * (mu_bg - mu_fg) ** 2
+        if variance > best_variance:
+            best_variance = variance
+            best_threshold = t
+
+    if global_mean > best_threshold:
+        ink = image <= best_threshold
     else:
-        mask = foreground
-    return mask * 255
+        ink = image >= best_threshold
+    return (ink.astype(np.uint8)) * 255
 
 
 def _connected_components(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
@@ -98,16 +119,21 @@ def _connected_components(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
 def _estimate_em_square(boxes: list[tuple[int, int, int, int]]) -> int:
     """Approximate one em-square in pixels from the detected boxes.
 
-    For a script like Latin where each letter is its own component, the
-    tallest components approximate the em. For Hangul where a syllable
-    decomposes into jamo, the widest/tallest fragment (often ㅏ/ㅣ or
-    the outer ㅁ/ㅇ bowl) still spans close to the full em.
+    For a script like Latin where each letter is its own component the
+    tallest components already approximate the em. Hangul syllables
+    decompose into jamo, but at least one fragment usually spans close
+    to the full em. Handwriting fonts break that assumption — a cursive
+    '가' can produce only short thin strokes of similar size — so we
+    also take the overall line height (the vertical span of all boxes)
+    and use whichever is larger. The line-height fallback requires
+    single-line text input, which is what the CLI/service target.
     """
     if not boxes:
         return 0
     max_dims = sorted(max(box[2] - box[0], box[3] - box[1]) for box in boxes)
     q75 = max_dims[int(len(max_dims) * 0.75)]
-    return int(q75 * 1.2)
+    line_height = max(box[3] for box in boxes) - min(box[1] for box in boxes)
+    return int(max(q75, line_height) * 1.15)
 
 
 def _group_into_syllables(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
@@ -160,21 +186,49 @@ def _group_into_syllables(boxes: list[tuple[int, int, int, int]]) -> list[tuple[
     return merged
 
 
+def _dilate(mask: np.ndarray, radius: int) -> np.ndarray:
+    """3x3 dilation applied `radius` times, no SciPy dependency.
+
+    Thin handwriting strokes often break into several connected
+    components after thresholding. A small morphological dilation
+    bridges pixel-level gaps so a single stroke turns into a single
+    component, without merging characters that have a visible gap
+    between them.
+    """
+    if radius <= 0:
+        return mask
+    output = mask.copy()
+    for _ in range(radius):
+        shifted = np.maximum.reduce([
+            output,
+            np.roll(output, 1, axis=0),
+            np.roll(output, -1, axis=0),
+            np.roll(output, 1, axis=1),
+            np.roll(output, -1, axis=1),
+        ])
+        output = shifted
+    return output
+
+
 def extract_glyph_crops(
     image_path: Path | str,
     *,
     max_glyphs: int = 32,
+    dilation_radius: int = 2,
 ) -> list[GlyphCrop]:
     """Return glyph crops detected in the image, ordered left-to-right."""
     image = Image.open(image_path).convert("L")
     array = np.asarray(image, dtype=np.uint8)
     mask = _auto_threshold(array)
-    boxes = _connected_components(mask)
+    dilated = _dilate(mask, dilation_radius)
+    boxes = _connected_components(dilated)
     boxes = _group_into_syllables(boxes)
 
     crops: list[GlyphCrop] = []
     for bbox in boxes[:max_glyphs]:
         x0, y0, x1, y1 = bbox
+        # Use the original un-dilated mask for the crop so the glyph
+        # shape stays faithful for fingerprinting.
         crop = mask[y0:y1, x0:x1]
         if crop.size == 0:
             continue
