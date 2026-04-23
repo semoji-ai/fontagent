@@ -10,6 +10,13 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
 
+[project.optional-dependencies]
+identify = [
+    "Pillow>=10.0",
+    "fonttools>=4.40",
+    "numpy>=1.24",
+]
+
 [project.scripts]
 fontagent = "fontagent.cli:main"
 fontagent-mcp = "fontagent.mcp_server:main"

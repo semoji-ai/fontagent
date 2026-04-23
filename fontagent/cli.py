@@ -332,6 +332,20 @@ def main() -> None:
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8123)
 
+    build_glyph_index = subparsers.add_parser("build-glyph-index")
+    build_glyph_index.add_argument("--font-dir", action="append", default=[])
+    build_glyph_index.add_argument("--language", choices=["ko", "en", "both"], default="both")
+    build_glyph_index.add_argument("--character", action="append")
+
+    identify_font = subparsers.add_parser("identify-font")
+    identify_font.add_argument("--image", required=True)
+    identify_font.add_argument("--top-k", type=int, default=5)
+    identify_font.add_argument("--char-hint", action="append", default=[])
+    identify_font.add_argument("--max-glyphs", type=int, default=32)
+    identify_font.add_argument("--fallback-task", default="")
+    identify_font.add_argument("--fallback-language", default="ko")
+    identify_font.add_argument("--no-fallback", action="store_true")
+
     subparsers.add_parser("mcp")
 
     args = parser.parse_args()
@@ -725,6 +739,29 @@ def main() -> None:
         elif args.command == "import-official-sources":
             service.ensure_catalog_ready()
             _print(service.import_official_sources(sources=args.source))
+        elif args.command == "build-glyph-index":
+            service.ensure_catalog_ready(auto_scan_system=True)
+            language_hint = None if args.language == "both" else args.language
+            _print(
+                service.build_font_identify_index(
+                    extra_font_dirs=[Path(directory) for directory in args.font_dir],
+                    language_hint=language_hint,
+                    characters=args.character or None,
+                )
+            )
+        elif args.command == "identify-font":
+            service.ensure_catalog_ready(auto_scan_system=True)
+            _print(
+                service.identify_font_in_image(
+                    image_path=Path(args.image),
+                    top_k=args.top_k,
+                    char_hints=args.char_hint or None,
+                    max_glyphs=args.max_glyphs,
+                    include_fallback_recommendations=not args.no_fallback,
+                    fallback_task=args.fallback_task,
+                    fallback_language=args.fallback_language,
+                )
+            )
         elif args.command == "serve":
             service.ensure_catalog_ready(auto_scan_system=True)
             serve(root, host=args.host, port=args.port)

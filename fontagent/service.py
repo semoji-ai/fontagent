@@ -58,7 +58,7 @@ from .resolver import (
     write_browser_download_task,
     write_source_browser_task,
 )
-from .system_scan import scan_system_font_records
+from .system_scan import FONT_FILE_SUFFIXES, scan_system_font_records
 from .template_bundle import write_template_bundle
 from .use_cases import UseCaseRequest, build_use_case_query, preview_preset_for_use_case
 from .use_cases import USE_CASE_PRESETS, get_use_case_preset
@@ -3147,3 +3147,193 @@ class FontAgentService:
             "failed_details_path": snapshot.get("failed_details_path"),
             "imported": imported["imported"],
         }
+
+    # ----- Font identification (image → font) ---------------------------
+
+    @property
+    def font_identify_index_dir(self) -> Path:
+        return self.root / ".cache" / "font_identify"
+
+    def _collect_font_identify_sources(
+        self,
+        *,
+        extra_font_dirs: list[Path] | None = None,
+    ) -> list[dict]:
+        """Return (font_id, family, font_path, tags, languages) for every font
+        whose binary we can locate locally."""
+        # font_identify is optional — only import when this path is exercised.
+        from .font_identify.index import FontSource  # noqa: WPS433
+
+        sources: list[FontSource] = []
+        seen_paths: set[str] = set()
+
+        def _slug_font_id(path: Path) -> str:
+            stem = re.sub(r"[^0-9a-zA-Z가-힣]+", "-", path.stem).strip("-").lower()
+            return f"local-{stem}" if stem else f"local-{path.name.lower()}"
+
+        for record in scan_system_font_records():
+            family = record.get("family", "")
+            for path_str in record.get("system_paths", []):
+                if not path_str or path_str in seen_paths:
+                    continue
+                path = Path(path_str)
+                if not path.exists() or path.suffix.lower() not in FONT_FILE_SUFFIXES:
+                    continue
+                seen_paths.add(path_str)
+                sources.append(
+                    FontSource(
+                        font_id=record.get("font_id") or _slug_font_id(path),
+                        family=family or path.stem,
+                        font_path=path,
+                        tags=list(record.get("tags", []) or []),
+                        languages=list(record.get("languages", []) or []),
+                    )
+                )
+
+        for directory in extra_font_dirs or []:
+            base = Path(directory)
+            if not base.exists():
+                continue
+            for path in sorted(base.rglob("*")):
+                if path.suffix.lower() not in FONT_FILE_SUFFIXES:
+                    continue
+                key = str(path.resolve())
+                if key in seen_paths:
+                    continue
+                seen_paths.add(key)
+                sources.append(
+                    FontSource(
+                        font_id=_slug_font_id(path),
+                        family=path.stem.replace("-", " ").replace("_", " "),
+                        font_path=path,
+                        tags=["local_asset"],
+                        languages=[],
+                    )
+                )
+        return [
+            {
+                "font_id": source.font_id,
+                "family": source.family,
+                "font_path": str(source.font_path),
+                "tags": source.tags,
+                "languages": source.languages,
+            }
+            for source in sources
+        ]
+
+    def build_font_identify_index(
+        self,
+        *,
+        extra_font_dirs: list[Path] | None = None,
+        language_hint: str | None = None,
+        characters: list[str] | None = None,
+    ) -> dict:
+        from .font_identify import build_index  # noqa: WPS433
+        from .font_identify.index import FontSource  # noqa: WPS433
+
+        raw = self._collect_font_identify_sources(extra_font_dirs=extra_font_dirs)
+        if not raw:
+            raise RuntimeError(
+                "no font files could be located locally; install a font or "
+                "pass --font-dir with .ttf/.otf assets",
+            )
+        sources = [
+            FontSource(
+                font_id=item["font_id"],
+                family=item["family"],
+                font_path=Path(item["font_path"]),
+                tags=list(item.get("tags", [])),
+                languages=list(item.get("languages", [])),
+            )
+            for item in raw
+        ]
+        summary = build_index(
+            sources,
+            index_dir=self.font_identify_index_dir,
+            characters=characters,
+            language_hint=language_hint,
+        )
+        summary["font_sources"] = len(sources)
+        return summary
+
+    def identify_font_in_image(
+        self,
+        *,
+        image_path: Path,
+        top_k: int = 5,
+        char_hints: list[str] | None = None,
+        max_glyphs: int = 32,
+        include_fallback_recommendations: bool = True,
+        fallback_task: str = "",
+        fallback_language: str = "ko",
+    ) -> dict:
+        from .font_identify import identify_from_image, load_index  # noqa: WPS433
+
+        index_dir = self.font_identify_index_dir
+        if not (index_dir / "manifest.json").exists():
+            raise RuntimeError(
+                f"font identify index not found at {index_dir}; run "
+                f"`fontagent build-glyph-index` first",
+            )
+        index = load_index(index_dir)
+        result = identify_from_image(
+            image_path=Path(image_path),
+            index=index,
+            top_k=top_k,
+            max_glyphs=max_glyphs,
+            char_hints=char_hints,
+        )
+        enriched_matches = [
+            self._enrich_identify_match(match, index) for match in result.top_matches
+        ]
+        fallback: dict | None = None
+        top_score = enriched_matches[0]["score"] if enriched_matches else 0.0
+        fallback_threshold = 0.55
+        if include_fallback_recommendations and top_score < fallback_threshold:
+            task_text = fallback_task or "font identification fallback"
+            try:
+                fallback = {
+                    "reason": "top_match_below_confidence_threshold",
+                    "threshold": fallback_threshold,
+                    "recommendations": self.recommend(
+                        task=task_text,
+                        language=fallback_language,
+                        count=5,
+                        detail_level="compact",
+                    ),
+                }
+            except Exception as exc:  # noqa: BLE001
+                fallback = {"reason": "recommend_failed", "error": str(exc)}
+        return {
+            "image_path": str(Path(image_path)),
+            "index_dir": str(index_dir),
+            "glyph_count": result.glyph_count,
+            "index_fonts": result.index_fonts,
+            "used_character_hints": result.used_character_hints,
+            "top_matches": enriched_matches,
+            "per_glyph": result.per_glyph,
+            "fallback": fallback,
+        }
+
+    def _enrich_identify_match(self, match: dict, index) -> dict:  # noqa: ANN001
+        font_id = match.get("font_id", "")
+        record = self.repository.get_font(font_id) if font_id else None
+        entry = index.font_entry(font_id) if font_id else None
+        enriched = dict(match)
+        if record is not None:
+            enriched.update(
+                {
+                    "family": record.family,
+                    "license_summary": record.license_summary,
+                    "commercial_use_allowed": record.commercial_use_allowed,
+                    "video_use_allowed": record.video_use_allowed,
+                    "web_embedding_allowed": record.web_embedding_allowed,
+                    "languages": record.languages,
+                    "download_type": record.download_type,
+                    "download_url": record.download_url,
+                    "source_site": record.source_site,
+                }
+            )
+        elif entry is not None:
+            enriched["family"] = entry.family
+        return enriched

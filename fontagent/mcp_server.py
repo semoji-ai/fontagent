@@ -228,6 +228,37 @@ class FontAgentMCPApplication:
                 },
             },
             {
+                "name": "build_glyph_index",
+                "title": "Build Glyph Index",
+                "description": "설치된 폰트로부터 이미지-폰트 식별용 글리프 지문 인덱스를 빌드합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "font_dirs": {"type": "array", "items": {"type": "string"}},
+                        "language": {"type": "string"},
+                        "characters": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+            {
+                "name": "identify_font_in_image",
+                "title": "Identify Font In Image",
+                "description": "이미지에서 텍스트 글리프를 추출하고 지문 인덱스와 비교해 후보 폰트를 반환합니다. top match의 유사도가 낮으면 유사 추천 폰트를 fallback으로 함께 반환합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "image_path": {"type": "string"},
+                        "top_k": {"type": "integer"},
+                        "char_hints": {"type": "array", "items": {"type": "string"}},
+                        "max_glyphs": {"type": "integer"},
+                        "include_fallback_recommendations": {"type": "boolean"},
+                        "fallback_task": {"type": "string"},
+                        "fallback_language": {"type": "string"},
+                    },
+                    "required": ["image_path"],
+                },
+            },
+            {
                 "name": "generate_typography_handoff",
                 "title": "Generate Typography Handoff",
                 "description": "디자인 에이전트로 넘길 typography handoff contract를 생성합니다.",
@@ -408,6 +439,30 @@ class FontAgentMCPApplication:
                 asset_dir=arguments.get("asset_dir", "assets/fonts"),
                 use_case=arguments.get("use_case"),
                 with_templates=bool(arguments.get("with_templates", False)),
+            )
+        if name == "build_glyph_index":
+            font_dirs = arguments.get("font_dirs") or []
+            language = arguments.get("language") or "both"
+            language_hint = None if language == "both" else language
+            return self.service.build_font_identify_index(
+                extra_font_dirs=[Path(item) for item in font_dirs],
+                language_hint=language_hint,
+                characters=arguments.get("characters"),
+            )
+        if name == "identify_font_in_image":
+            image_path = arguments.get("image_path") or ""
+            if not image_path:
+                raise ValueError("image_path is required")
+            return self.service.identify_font_in_image(
+                image_path=Path(image_path).expanduser(),
+                top_k=int(arguments.get("top_k", 5)),
+                char_hints=arguments.get("char_hints"),
+                max_glyphs=int(arguments.get("max_glyphs", 32)),
+                include_fallback_recommendations=bool(
+                    arguments.get("include_fallback_recommendations", True)
+                ),
+                fallback_task=arguments.get("fallback_task", ""),
+                fallback_language=arguments.get("fallback_language", "ko"),
             )
         if name == "generate_typography_handoff":
             return self.service.generate_typography_handoff(

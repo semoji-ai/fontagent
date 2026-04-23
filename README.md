@@ -2,11 +2,12 @@
 
 `FontAgent`는 에이전트와 개발자가 원하는 톤과 용도에 맞는 무료 폰트를 찾고, 설치하고, 프로젝트용 폰트 시스템으로 넘기기 위한 도구입니다.
 
-핵심은 복잡한 수집 명령이 아니라 아래 3가지입니다.
+핵심은 복잡한 수집 명령이 아니라 아래 4가지입니다.
 
 - 원하는 작업에 맞는 폰트 추천
 - 마음에 드는 폰트 설치
 - 프로젝트용 폰트 시스템 export
+- 이미지에 있는 텍스트에서 폰트 식별
 
 ## 권장 사용 방식
 
@@ -118,6 +119,33 @@ python3 -m fontagent.cli mcp
 - MCP stdio server
 - 간단한 웹 UI (`/`)
 - 프로젝트용 폰트 시스템/타이포 handoff 생성
+- 이미지 → 폰트 식별 (glyph fingerprint 기반)
+
+## 이미지에서 폰트 찾기
+
+설치된 폰트 파일로부터 글자 단위 지문 인덱스를 구축하고, 이미지에 있는
+텍스트를 같은 지문 공간에서 비교해 후보 폰트를 반환합니다. 의존성이
+필요하므로 `identify` extra를 먼저 설치해야 합니다.
+
+```bash
+pip install "fontagent[identify]"
+
+python3 -m fontagent.cli build-glyph-index --language both
+python3 -m fontagent.cli identify-font \
+    --image path/to/slide.png \
+    --char-hint H --char-hint E --char-hint L --char-hint L --char-hint O
+```
+
+- `build-glyph-index`
+  - 시스템에 설치된 폰트를 자동 스캔해서 글리프 지문 인덱스를 생성
+  - `--font-dir <path>` 를 여러 번 지정해 추가 폰트 파일 디렉터리 포함 가능
+  - `--language` 로 ko / en / both 샘플 세트 선택
+- `identify-font`
+  - 이미지에서 글자를 분리해 인덱스와 비교, top-k 후보 반환
+  - `--char-hint` 를 감지된 글자 순서대로 전달하면 정확도가 올라감
+  - 매칭 신뢰도가 임계값보다 낮으면 `recommend` 기반 유사 폰트 fallback을 함께 반환
+
+MCP에서도 동일하게 `build_glyph_index`, `identify_font_in_image` 도구로 노출됩니다.
 
 ## 데이터 모델
 
