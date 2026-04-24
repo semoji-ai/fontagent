@@ -3263,11 +3263,14 @@ class FontAgentService:
         top_k: int = 5,
         char_hints: list[str] | None = None,
         max_glyphs: int = 32,
-        include_fallback_recommendations: bool = True,
-        fallback_task: str = "",
-        fallback_language: str = "ko",
+        license_constraints: dict | None = None,
+        similar_alternatives: int = 5,
     ) -> dict:
-        from .font_identify import identify_from_image, load_index  # noqa: WPS433
+        from .font_identify import (  # noqa: WPS433
+            find_similar_fonts,
+            identify_from_image,
+            load_index,
+        )
 
         index_dir = self.font_identify_index_dir
         if not (index_dir / "manifest.json").exists():
@@ -3283,27 +3286,20 @@ class FontAgentService:
             max_glyphs=max_glyphs,
             char_hints=char_hints,
         )
+        normalized_constraints = self._normalize_license_constraints(license_constraints)
         enriched_matches = [
-            self._enrich_identify_match(match, index) for match in result.top_matches
+            self._enrich_identify_match(match, index, rank=rank)
+            for rank, match in enumerate(result.top_matches, start=1)
         ]
-        fallback: dict | None = None
-        top_score = enriched_matches[0]["score"] if enriched_matches else 0.0
-        fallback_threshold = 0.55
-        if include_fallback_recommendations and top_score < fallback_threshold:
-            task_text = fallback_task or "font identification fallback"
-            try:
-                fallback = {
-                    "reason": "top_match_below_confidence_threshold",
-                    "threshold": fallback_threshold,
-                    "recommendations": self.recommend(
-                        task=task_text,
-                        language=fallback_language,
-                        count=5,
-                        detail_level="compact",
-                    ),
-                }
-            except Exception as exc:  # noqa: BLE001
-                fallback = {"reason": "recommend_failed", "error": str(exc)}
+        alternatives: list[dict] = []
+        if similar_alternatives > 0 and enriched_matches:
+            alternatives = self._collect_similar_alternatives(
+                index=index,
+                reference_font_id=enriched_matches[0]["font_id"],
+                already_listed_font_ids={m["font_id"] for m in enriched_matches},
+                license_constraints=normalized_constraints,
+                limit=similar_alternatives,
+            )
         return {
             "image_path": str(Path(image_path)),
             "index_dir": str(index_dir),
@@ -3311,24 +3307,79 @@ class FontAgentService:
             "index_fonts": result.index_fonts,
             "used_character_hints": result.used_character_hints,
             "top_matches": enriched_matches,
+            "similar_alternatives": alternatives,
+            "license_constraints_applied": normalized_constraints,
             "per_glyph": result.per_glyph,
-            "fallback": fallback,
         }
 
-    def _enrich_identify_match(self, match: dict, index) -> dict:  # noqa: ANN001
+    def _normalize_license_constraints(self, constraints: dict | None) -> dict | None:
+        if not constraints:
+            return None
+        normalized = {
+            key: bool(constraints.get(key, False))
+            for key in (
+                "commercial_use",
+                "video_use",
+                "web_embedding",
+                "redistribution",
+            )
+        }
+        return normalized if any(normalized.values()) else None
+
+    def _license_record_satisfies(self, record, constraints: dict | None) -> bool:  # noqa: ANN001
+        if not constraints:
+            return True
+        if constraints.get("commercial_use") and not record.commercial_use_allowed:
+            return False
+        if constraints.get("video_use") and not record.video_use_allowed:
+            return False
+        if constraints.get("web_embedding") and not record.web_embedding_allowed:
+            return False
+        if constraints.get("redistribution") and not record.redistribution_allowed:
+            return False
+        return True
+
+    def _build_font_detail_block(self, record) -> dict:  # noqa: ANN001
+        return {
+            "license": {
+                "license_id": record.license_id,
+                "license_summary": record.license_summary,
+                "commercial_use_allowed": record.commercial_use_allowed,
+                "video_use_allowed": record.video_use_allowed,
+                "web_embedding_allowed": record.web_embedding_allowed,
+                "redistribution_allowed": record.redistribution_allowed,
+            },
+            "source": {
+                "source_site": record.source_site,
+                "source_page_url": record.source_page_url,
+                "homepage_url": record.homepage_url,
+            },
+            "install": {
+                "download_type": record.download_type,
+                "download_url": record.download_url,
+                "download_source": record.download_source,
+            },
+        }
+
+    def _enrich_identify_match(self, match: dict, index, *, rank: int | None = None) -> dict:  # noqa: ANN001
         font_id = match.get("font_id", "")
         record = self.repository.get_font(font_id) if font_id else None
         entry = index.font_entry(font_id) if font_id else None
         enriched = dict(match)
+        if rank is not None:
+            enriched["rank"] = rank
         if record is not None:
             enriched.update(
                 {
                     "family": record.family,
+                    "languages": record.languages,
+                    "tags": record.tags,
+                    **self._build_font_detail_block(record),
+                    # Flat legacy fields kept for backward compatibility.
                     "license_summary": record.license_summary,
                     "commercial_use_allowed": record.commercial_use_allowed,
                     "video_use_allowed": record.video_use_allowed,
                     "web_embedding_allowed": record.web_embedding_allowed,
-                    "languages": record.languages,
                     "download_type": record.download_type,
                     "download_url": record.download_url,
                     "source_site": record.source_site,
@@ -3336,4 +3387,45 @@ class FontAgentService:
             )
         elif entry is not None:
             enriched["family"] = entry.family
+            enriched["languages"] = entry.languages
         return enriched
+
+    def _collect_similar_alternatives(
+        self,
+        *,
+        index,  # noqa: ANN001
+        reference_font_id: str,
+        already_listed_font_ids: set[str],
+        license_constraints: dict | None,
+        limit: int,
+    ) -> list[dict]:
+        from .font_identify import find_similar_fonts  # noqa: WPS433
+
+        # Pull extra candidates so license filtering has room to breathe.
+        pool_size = max(limit * 3, limit + 10)
+        candidates = find_similar_fonts(
+            index,
+            reference_font_id,
+            top_k=pool_size,
+            exclude_font_ids=already_listed_font_ids,
+        )
+        alternatives: list[dict] = []
+        for alt_font_id, similarity in candidates:
+            record = self.repository.get_font(alt_font_id)
+            if record is None:
+                continue
+            if not self._license_record_satisfies(record, license_constraints):
+                continue
+            alternatives.append(
+                {
+                    "font_id": alt_font_id,
+                    "family": record.family,
+                    "similarity_to_top_match": round(float(similarity), 6),
+                    "languages": record.languages,
+                    "tags": record.tags,
+                    **self._build_font_detail_block(record),
+                }
+            )
+            if len(alternatives) >= limit:
+                break
+        return alternatives

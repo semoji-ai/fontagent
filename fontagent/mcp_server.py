@@ -243,7 +243,7 @@ class FontAgentMCPApplication:
             {
                 "name": "identify_font_in_image",
                 "title": "Identify Font In Image",
-                "description": "이미지에서 텍스트 글리프를 추출하고 지문 인덱스와 비교해 후보 폰트를 반환합니다. top match의 유사도가 낮으면 유사 추천 폰트를 fallback으로 함께 반환합니다.",
+                "description": "이미지에서 텍스트 글리프를 추출하고 지문 인덱스와 비교해 top 1~5 후보 폰트를 각 라이선스 정보와 함께 반환합니다. license_constraints로 상업/영상/웹/재배포 조건을 지정하면 조건을 만족하는 유사 대체 폰트를 fingerprint 유사도로 정렬해 함께 돌려줍니다.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -251,9 +251,16 @@ class FontAgentMCPApplication:
                         "top_k": {"type": "integer"},
                         "char_hints": {"type": "array", "items": {"type": "string"}},
                         "max_glyphs": {"type": "integer"},
-                        "include_fallback_recommendations": {"type": "boolean"},
-                        "fallback_task": {"type": "string"},
-                        "fallback_language": {"type": "string"},
+                        "similar_alternatives": {"type": "integer"},
+                        "license_constraints": {
+                            "type": "object",
+                            "properties": {
+                                "commercial_use": {"type": "boolean"},
+                                "video_use": {"type": "boolean"},
+                                "web_embedding": {"type": "boolean"},
+                                "redistribution": {"type": "boolean"},
+                            },
+                        },
                     },
                     "required": ["image_path"],
                 },
@@ -458,11 +465,8 @@ class FontAgentMCPApplication:
                 top_k=int(arguments.get("top_k", 5)),
                 char_hints=arguments.get("char_hints"),
                 max_glyphs=int(arguments.get("max_glyphs", 32)),
-                include_fallback_recommendations=bool(
-                    arguments.get("include_fallback_recommendations", True)
-                ),
-                fallback_task=arguments.get("fallback_task", ""),
-                fallback_language=arguments.get("fallback_language", "ko"),
+                similar_alternatives=int(arguments.get("similar_alternatives", 5)),
+                license_constraints=arguments.get("license_constraints"),
             )
         if name == "generate_typography_handoff":
             return self.service.generate_typography_handoff(

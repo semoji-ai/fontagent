@@ -124,8 +124,9 @@ python3 -m fontagent.cli mcp
 ## 이미지에서 폰트 찾기
 
 설치된 폰트 파일로부터 글자 단위 지문 인덱스를 구축하고, 이미지에 있는
-텍스트를 같은 지문 공간에서 비교해 후보 폰트를 반환합니다. 의존성이
-필요하므로 `identify` extra를 먼저 설치해야 합니다.
+텍스트를 같은 지문 공간에서 비교해 top 1~5 후보 폰트를 각 라이선스
+정보와 함께 반환합니다. 의존성이 필요하므로 `identify` extra를 먼저
+설치해야 합니다.
 
 ```bash
 pip install "fontagent[identify]"
@@ -133,7 +134,8 @@ pip install "fontagent[identify]"
 python3 -m fontagent.cli build-glyph-index --language both
 python3 -m fontagent.cli identify-font \
     --image path/to/slide.png \
-    --char-hint H --char-hint E --char-hint L --char-hint L --char-hint O
+    --char-hint H --char-hint E --char-hint L --char-hint L --char-hint O \
+    --commercial-use --video-use --similar-count 5
 ```
 
 - `build-glyph-index`
@@ -141,9 +143,16 @@ python3 -m fontagent.cli identify-font \
   - `--font-dir <path>` 를 여러 번 지정해 추가 폰트 파일 디렉터리 포함 가능
   - `--language` 로 ko / en / both 샘플 세트 선택
 - `identify-font`
-  - 이미지에서 글자를 분리해 인덱스와 비교, top-k 후보 반환
+  - 이미지에서 글자를 분리해 인덱스와 비교, top 1~5 후보를 반환
+  - 각 후보는 `license` (commercial/video/web/redistribution), `source`,
+    `install` 블록을 포함해 다운로드/사용 가능 여부를 바로 판단할 수 있음
   - `--char-hint` 를 감지된 글자 순서대로 전달하면 정확도가 올라감
-  - 매칭 신뢰도가 임계값보다 낮으면 `recommend` 기반 유사 폰트 fallback을 함께 반환
+  - `--similar-count N` 으로 top-1 과 fingerprint 유사도 순으로 N개의
+    대체 폰트를 추가 반환 (AI 생성 이미지처럼 정확 매칭이 어렵거나
+    라이선스 조건을 만족하는 대안이 필요할 때 유용)
+  - `--commercial-use`, `--video-use`, `--web-embedding`,
+    `--redistribution` 을 조합해 similar alternatives 의 라이선스 조건
+    필터를 지정
 
 MCP에서도 동일하게 `build_glyph_index`, `identify_font_in_image` 도구로 노출됩니다.
 

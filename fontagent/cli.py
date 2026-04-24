@@ -342,9 +342,11 @@ def main() -> None:
     identify_font.add_argument("--top-k", type=int, default=5)
     identify_font.add_argument("--char-hint", action="append", default=[])
     identify_font.add_argument("--max-glyphs", type=int, default=32)
-    identify_font.add_argument("--fallback-task", default="")
-    identify_font.add_argument("--fallback-language", default="ko")
-    identify_font.add_argument("--no-fallback", action="store_true")
+    identify_font.add_argument("--similar-count", type=int, default=5)
+    identify_font.add_argument("--commercial-use", action="store_true")
+    identify_font.add_argument("--video-use", action="store_true")
+    identify_font.add_argument("--web-embedding", action="store_true")
+    identify_font.add_argument("--redistribution", action="store_true")
 
     subparsers.add_parser("mcp")
 
@@ -751,15 +753,20 @@ def main() -> None:
             )
         elif args.command == "identify-font":
             service.ensure_catalog_ready(auto_scan_system=True)
+            constraints = {
+                "commercial_use": args.commercial_use,
+                "video_use": args.video_use,
+                "web_embedding": args.web_embedding,
+                "redistribution": args.redistribution,
+            }
             _print(
                 service.identify_font_in_image(
                     image_path=Path(args.image),
                     top_k=args.top_k,
                     char_hints=args.char_hint or None,
                     max_glyphs=args.max_glyphs,
-                    include_fallback_recommendations=not args.no_fallback,
-                    fallback_task=args.fallback_task,
-                    fallback_language=args.fallback_language,
+                    license_constraints=constraints,
+                    similar_alternatives=args.similar_count,
                 )
             )
         elif args.command == "serve":

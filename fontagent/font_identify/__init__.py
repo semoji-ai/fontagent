@@ -31,6 +31,7 @@ from .index import (
 )
 from .detect import GlyphCrop, extract_glyph_crops
 from .match import IdentificationResult, identify_from_image, identify_from_glyph
+from .similar import find_similar_fonts
 
 __all__ = [
     "DEFAULT_INDEX_SAMPLES_KO",
@@ -50,4 +51,5 @@ __all__ = [
     "IdentificationResult",
     "identify_from_image",
     "identify_from_glyph",
+    "find_similar_fonts",
 ]

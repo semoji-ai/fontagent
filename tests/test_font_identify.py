@@ -12,6 +12,7 @@ try:  # pragma: no cover - exercised by CI when extras are missing
         build_index,
         compute_fingerprint,
         cosine_similarity,
+        find_similar_fonts,
         identify_from_glyph,
         identify_from_image,
         load_index,
@@ -204,6 +205,52 @@ class KoreanIdentificationTests(unittest.TestCase):
             self.assertTrue(result.top_matches)
             top_ids = [match["font_id"] for match in result.top_matches]
             self.assertIn(target_id, top_ids)
+
+
+@unittest.skipUnless(DEPENDENCIES_AVAILABLE, "Pillow/fontTools/numpy not installed")
+class SimilarFontTests(unittest.TestCase):
+    def test_find_similar_fonts_excludes_reference_and_sorts_descending(self) -> None:
+        fonts = _available_fonts()
+        if len(fonts) < 3:
+            self.skipTest("need at least three TTF fonts to rank similarities")
+        sources = [FontSource(fid, family, path) for fid, family, path in fonts]
+        with tempfile.TemporaryDirectory() as td:
+            index_dir = Path(td) / "index"
+            build_index(sources, index_dir=index_dir, language_hint="en")
+            index = load_index(index_dir)
+
+            ref_id = fonts[0][0]
+            results = find_similar_fonts(index, ref_id, top_k=5)
+
+            self.assertTrue(results)
+            self.assertLessEqual(len(results), len(fonts) - 1)
+            # Reference must never appear in its own similarity list.
+            self.assertFalse(any(fid == ref_id for fid, _ in results))
+            # Scores must be sorted highest first.
+            scores = [score for _, score in results]
+            self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_find_similar_fonts_respects_exclusion(self) -> None:
+        fonts = _available_fonts()
+        if len(fonts) < 3:
+            self.skipTest("need at least three TTF fonts")
+        sources = [FontSource(fid, family, path) for fid, family, path in fonts]
+        with tempfile.TemporaryDirectory() as td:
+            index_dir = Path(td) / "index"
+            build_index(sources, index_dir=index_dir, language_hint="en")
+            index = load_index(index_dir)
+
+            ref_id = fonts[0][0]
+            excluded_id = fonts[1][0]
+            results = find_similar_fonts(
+                index,
+                ref_id,
+                top_k=len(fonts),
+                exclude_font_ids={excluded_id},
+            )
+            returned_ids = {fid for fid, _ in results}
+            self.assertNotIn(ref_id, returned_ids)
+            self.assertNotIn(excluded_id, returned_ids)
 
 
 @unittest.skipUnless(DEPENDENCIES_AVAILABLE, "Pillow/fontTools/numpy not installed")
