@@ -1146,11 +1146,20 @@ class FontAgentService:
         scored: list[tuple[int, dict]] = []
         for font in fonts:
             score = 0
+            tag_set = {str(tag).lower() for tag in font["tags"]}
+            recommended_set = {str(item).lower() for item in font["recommended_for"]}
             corpus = " ".join(
                 font["tags"] + font["recommended_for"] + [font["family"], font["source_site"]]
             ).lower()
             for token in task_tokens:
-                if token in corpus:
+                # Exact tag/role match — most discriminative signal. A
+                # caller who says style_hints=["handwriting"] should get
+                # a bigger boost for a font tagged exactly "handwriting"
+                # than for a font whose description merely contains the
+                # substring somewhere.
+                if token in tag_set or token in recommended_set:
+                    score += 5
+                elif token in corpus:
                     score += 3
             if "title" in font["recommended_for"]:
                 score += 1
@@ -3804,11 +3813,16 @@ class FontAgentService:
         crop.save(crop_path)
 
         identify_matches: list[dict] = []
+        identify_confidence = 0.0
+        # Pull a wider candidate pool than we display so the hybrid RRF
+        # step has enough material to rebuild a good top-5 even when
+        # stroke-weighted identify narrows its own view sharply.
+        candidate_pool = 20
         try:
             identify_result = identify_from_image(
                 image_path=crop_path,
                 index=index,
-                top_k=8,
+                top_k=candidate_pool,
                 max_glyphs=16,
                 char_hints=list(text) if text else None,
             )
@@ -3816,6 +3830,9 @@ class FontAgentService:
                 self._enrich_identify_match(match, index, rank=rank)
                 for rank, match in enumerate(identify_result.top_matches, start=1)
             ]
+            identify_confidence = float(
+                getattr(identify_result, "identify_confidence", 0.0) or 0.0
+            )
         except Exception as exc:  # noqa: BLE001
             identify_matches = []
             identify_error = str(exc)
@@ -3827,11 +3844,17 @@ class FontAgentService:
         task_text = self._build_recommend_task(role=role, style_hints=style_hints, text=text)
         if task_text:
             try:
+                # Don't hard-filter by region language: the caller may
+                # want a Korean handwriting face applied to a short
+                # English phrase, and the language attribute in our
+                # DB is a boost signal (`recommend` adds points when
+                # it matches) rather than a strict filter. We pass
+                # None so the content-aware pass sees every font.
                 recommend_matches = self.recommend(
                     task=task_text,
-                    language=language,
+                    language=None,
                     commercial_only=False,
-                    count=8,
+                    count=candidate_pool,
                     detail_level="compact",
                 )
             except Exception as exc:  # noqa: BLE001
@@ -3841,6 +3864,8 @@ class FontAgentService:
         ranked = self._hybrid_rank_fonts(
             identify_matches=identify_matches,
             recommend_matches=recommend_matches,
+            identify_confidence=identify_confidence,
+            style_hints=style_hints,
         )
         ranked = [
             entry for entry in ranked
@@ -3862,6 +3887,7 @@ class FontAgentService:
             "similar_alternatives": alternatives,
             "match_reasoning": {
                 "identify_top": identify_matches[0]["font_id"] if identify_matches else None,
+                "identify_confidence": round(identify_confidence, 4),
                 "identify_error": identify_error,
                 "recommend_task": task_text,
                 "recommend_top": recommend_matches[0]["font_id"] if recommend_matches else None,
@@ -3896,6 +3922,8 @@ class FontAgentService:
         *,
         identify_matches: list[dict],
         recommend_matches: list[dict],
+        identify_confidence: float = 0.0,
+        style_hints: list[str] | None = None,
         rrf_k: int = 60,
     ) -> list[dict]:
         """Reciprocal-rank-fusion merge of identify and recommend results.
@@ -3904,7 +3932,39 @@ class FontAgentService:
         especially fonts that appear in both. It avoids having to
         normalize the two score scales (identify is z-score sum,
         recommend is a keyword-match count) which don't share units.
+
+        `identify_confidence` ∈ [0, 1] mildly up-weights the identify
+        channel when the visual separation between its top-1 and top-2
+        is clear. The weight is capped at 1.3× to avoid a confidently-
+        wrong identify result drowning out a correct recommend pick —
+        confidence measures decisiveness of the ranking, not
+        correctness of its worldview.
+
+        When `style_hints` indicates a visually-fragile category like
+        handwriting or brush script (where the detector routinely
+        fractures thin strokes and mis-categorizes the crop), invert
+        the weighting so recommend carries more weight than identify.
+        The content-aware channel is much more reliable when the
+        caller has told us the text is written by hand.
         """
+        clamped_conf = max(0.0, min(1.0, float(identify_confidence)))
+        identify_weight = 1.0 + 0.3 * clamped_conf
+        recommend_weight = 1.0
+
+        fragile_tokens = {
+            "handwriting", "handwritten", "brush", "script", "pen",
+            "calligraphy", "cursive",
+        }
+        if style_hints and any(
+            str(hint).strip().lower() in fragile_tokens for hint in style_hints
+        ):
+            # In a fragile category identify mostly contributes noise,
+            # so the content-aware recommend channel carries the pick.
+            # We still give identify a whisper of weight so it can
+            # break ties among otherwise-equal recommend candidates.
+            identify_weight = 0.2
+            recommend_weight = 1.6
+
         scores: dict[str, float] = {}
         sources: dict[str, dict] = {}
         best_blob: dict[str, dict] = {}
@@ -3913,7 +3973,7 @@ class FontAgentService:
             font_id = match.get("font_id", "")
             if not font_id:
                 continue
-            scores[font_id] = scores.get(font_id, 0.0) + 1.0 / (rrf_k + rank)
+            scores[font_id] = scores.get(font_id, 0.0) + identify_weight / (rrf_k + rank)
             info = sources.setdefault(font_id, {})
             info["identify_rank"] = rank
             info["identify_score"] = match.get("score")
@@ -3924,7 +3984,7 @@ class FontAgentService:
             font_id = match.get("font_id", "")
             if not font_id:
                 continue
-            scores[font_id] = scores.get(font_id, 0.0) + 1.0 / (rrf_k + rank)
+            scores[font_id] = scores.get(font_id, 0.0) + recommend_weight / (rrf_k + rank)
             info = sources.setdefault(font_id, {})
             info["recommend_rank"] = rank
             info["recommend_score"] = match.get("score")

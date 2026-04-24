@@ -26,6 +26,17 @@ HOG_BINS = 9
 ZONE_GRID = 8
 STROKE_BINS = 10
 
+# Each block is L2-normalized to unit length before concatenation, then
+# the combined vector is L2-normalized again. Without weights every
+# block contributes equal magnitude, which buries the stroke signature
+# under pixel/HOG noise — that's how a thin handwriting query ends up
+# closest to a serif book face on shape/orientation alone. Up-weighting
+# the stroke block before concatenation gives it ~1.8x the magnitude of
+# a shape block, so fonts with the wrong stroke distribution (heavy
+# display vs. hairline handwriting) are penalized correctly.
+STROKE_BLOCK_WEIGHT = 1.3
+FINGERPRINT_VERSION = 2
+
 _PIXEL_DIM = PIXEL_GRID * PIXEL_GRID
 _HOG_DIM = HOG_GRID * HOG_GRID * HOG_BINS
 _ZONE_DIM = ZONE_GRID * ZONE_GRID
@@ -148,7 +159,7 @@ def compute_fingerprint(bitmap: np.ndarray) -> np.ndarray:
     pixel_block = _l2_normalize(_downsample(bitmap, PIXEL_GRID).reshape(-1))
     hog_block = _l2_normalize(_gradient_orientation_histogram(bitmap))
     zone_block = _l2_normalize(_ink_density(bitmap))
-    stroke_block = _l2_normalize(_stroke_width_histogram(bitmap))
+    stroke_block = _l2_normalize(_stroke_width_histogram(bitmap)) * STROKE_BLOCK_WEIGHT
     combined = np.concatenate([pixel_block, hog_block, zone_block, stroke_block])
     return _l2_normalize(combined)
 

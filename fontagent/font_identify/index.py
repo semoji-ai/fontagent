@@ -19,7 +19,12 @@ from typing import Iterable, Optional
 
 import numpy as np
 
-from .fingerprint import FINGERPRINT_DIM, compute_fingerprint, cosine_similarity_matrix
+from .fingerprint import (
+    FINGERPRINT_DIM,
+    FINGERPRINT_VERSION,
+    compute_fingerprint,
+    cosine_similarity_matrix,
+)
 from .glyph_renderer import default_index_samples, render_many
 
 
@@ -111,6 +116,7 @@ def build_index(
     manifest = {
         "version": 1,
         "fingerprint_dim": FINGERPRINT_DIM,
+        "fingerprint_version": FINGERPRINT_VERSION,
         "normalized_size": normalized_size,
         "render_size": render_size,
         "character_set": char_list,

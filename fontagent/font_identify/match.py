@@ -33,11 +33,35 @@ class IdentificationResult:
     glyph_count: int
     index_fonts: int
     used_character_hints: bool
+    identify_confidence: float = 0.0
 
 
 def _prepare_query(bitmap: np.ndarray, normalized_size: int) -> np.ndarray:
     normalized = normalize_glyph_bitmap(bitmap, target_size=normalized_size)
     return compute_fingerprint(normalized)
+
+
+def _compute_identify_confidence(top_matches: list[dict]) -> float:
+    """A 0..1 confidence score based on the separation of the ranked list.
+
+    When the top match scores well clear of the runners-up, confidence
+    is high. When everything clusters together (common for noisy crops
+    or index pools full of visually similar fonts), confidence is low
+    so the downstream hybrid can trust the keyword-based recommend
+    channel more.
+    """
+    if not top_matches:
+        return 0.0
+    scores = [float(match.get("score", 0.0)) for match in top_matches]
+    top = scores[0]
+    if top <= 0:
+        return 0.0
+    if len(scores) == 1:
+        return 1.0
+    runner_up = scores[1]
+    gap = (top - runner_up) / max(abs(top), 1e-6)
+    # Squash to [0, 1]; a 25% lead over #2 maps to ~0.75 confidence.
+    return float(max(0.0, min(1.0, gap * 3.0)))
 
 
 def _zscore_aggregate(
@@ -109,6 +133,7 @@ def identify_from_glyph(
                 glyph_count=1,
                 index_fonts=len(index.manifest.get("fonts", [])),
                 used_character_hints=True,
+                identify_confidence=_compute_identify_confidence(aggregated),
             )
 
     raw = index.query_unknown_char_all(query_fp)
@@ -139,6 +164,7 @@ def identify_from_glyph(
         glyph_count=1,
         index_fonts=len(index.manifest.get("fonts", [])),
         used_character_hints=False,
+        identify_confidence=_compute_identify_confidence(aggregated),
     )
 
 
@@ -215,4 +241,5 @@ def identify_from_image(
         glyph_count=len(crops),
         index_fonts=len(index.manifest.get("fonts", [])),
         used_character_hints=used_hints,
+        identify_confidence=_compute_identify_confidence(top_matches),
     )
