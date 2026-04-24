@@ -357,6 +357,10 @@ def main() -> None:
     )
     compose_layers.add_argument("--similar-count", type=int, default=3)
     compose_layers.add_argument("--svg-output")
+    compose_layers.add_argument("--install-to")
+    compose_layers.add_argument("--handoff-output")
+    compose_layers.add_argument("--css-output")
+    compose_layers.add_argument("--remotion-output")
     compose_layers.add_argument("--commercial-use", action="store_true")
     compose_layers.add_argument("--video-use", action="store_true")
     compose_layers.add_argument("--web-embedding", action="store_true")
@@ -808,6 +812,10 @@ def main() -> None:
                     similar_alternatives=args.similar_count,
                     license_constraints=constraints,
                     svg_output_path=Path(args.svg_output) if args.svg_output else None,
+                    install_to=Path(args.install_to) if args.install_to else None,
+                    handoff_output_path=Path(args.handoff_output) if args.handoff_output else None,
+                    css_output_path=Path(args.css_output) if args.css_output else None,
+                    remotion_output_path=Path(args.remotion_output) if args.remotion_output else None,
                 )
             )
         elif args.command == "serve":

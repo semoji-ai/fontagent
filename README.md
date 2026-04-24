@@ -198,6 +198,33 @@ FontAgent 는 OCR 을 직접 수행하지 않으며, `regions` 는 호출하는 
 채워 넘기는 것을 전제로 합니다. MCP 에서도 `compose_text_layers` 도구로 같은
 입력을 받습니다.
 
+### 한 번의 호출로 설치 + handoff 까지
+
+`--install-to` / `--handoff-output` / `--css-output` / `--remotion-output`
+을 같이 넘기면 한 번의 호출로 다음이 모두 완료됩니다:
+
+1. 영역별 승자 폰트 자동 설치 (각 layer 의 `font.install` 블록에 `installed_files`
+   와 `install_status` 부착)
+2. 각 layer 에 `confidence ∈ [0,1]` + `confidence_tier ∈ {high,medium,low,none}`
+   부착 — identify 와 recommend 둘 다 상위에서 만났는지, 한 쪽에서만 나왔는지에
+   따라 계산
+3. 설치된 경로를 참조하는 `@font-face` CSS 번들 작성
+4. Remotion 에서 로드할 수 있는 `fontAgentTextLayerFonts` 배열 작성
+5. `fontagent.text-layer-handoff.v1` 계약을 JSON 으로 영속화 — 다운스트림
+   에이전트(예: 별도 PPT 에이전트)가 레이아웃/편집 가능한 텍스트박스를 만들 때
+   그대로 소비할 수 있는 region→font 매핑
+
+```bash
+python3 -m fontagent.cli compose-text-layers \
+    --image poster.png \
+    --regions regions.json \
+    --install-to ./assets/fonts \
+    --handoff-output ./typography-handoff.json \
+    --css-output ./fonts.css \
+    --remotion-output ./src/remotionFonts.ts \
+    --commercial-use
+```
+
 ## 데이터 모델
 
 핵심 필드:

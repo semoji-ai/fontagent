@@ -268,7 +268,7 @@ class FontAgentMCPApplication:
             {
                 "name": "compose_text_layers",
                 "title": "Compose Text Layers",
-                "description": "포스터/장면 이미지에 대해 호출자가 미리 OCR·영역 분할해둔 regions 배열을 입력으로 받아, 각 영역에 시각적 identify + 역할/스타일 기반 recommend 를 hybrid(RRF)로 결합해 최적 폰트를 배정합니다. 각 text layer 는 font 상세(라이선스/source/install) 와 유사 대안을 포함하고, 옵션으로 svg_preview_path 에 디버그용 SVG 를 출력합니다. OCR 은 FontAgent 에서 수행하지 않습니다 — 멀티모달 LLM 이 regions 를 생성해 넘겨주는 것이 전제.",
+                "description": "포스터/장면 이미지에 대해 호출자가 미리 OCR·영역 분할해둔 regions 배열을 입력으로 받아, 각 영역에 시각적 identify + 역할/스타일 기반 recommend 를 hybrid(RRF)로 결합해 최적 폰트를 배정합니다. 각 text layer 는 font 상세(라이선스/source/install/confidence) 와 유사 대안을 포함합니다. install_to 가 지정되면 승자 폰트를 해당 디렉터리에 자동 설치하고, css/remotion/handoff output 경로를 넘기면 @font-face, Remotion 폰트 맵, text-layer-handoff.v1 계약을 함께 출력합니다. OCR 은 FontAgent 에서 수행하지 않습니다 — 멀티모달 LLM 이 regions 를 생성해 넘겨주는 것이 전제.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -295,6 +295,10 @@ class FontAgentMCPApplication:
                         },
                         "similar_alternatives": {"type": "integer"},
                         "svg_output_path": {"type": "string"},
+                        "install_to": {"type": "string"},
+                        "handoff_output_path": {"type": "string"},
+                        "css_output_path": {"type": "string"},
+                        "remotion_output_path": {"type": "string"},
                         "license_constraints": {
                             "type": "object",
                             "properties": {
@@ -519,12 +523,20 @@ class FontAgentMCPApplication:
             if not isinstance(regions, list):
                 raise ValueError("regions must be a list")
             svg_output = arguments.get("svg_output_path")
+            install_to = arguments.get("install_to")
+            handoff_output = arguments.get("handoff_output_path")
+            css_output = arguments.get("css_output_path")
+            remotion_output = arguments.get("remotion_output_path")
             return self.service.compose_text_layers(
                 image_path=Path(image_path).expanduser(),
                 regions=regions,
                 similar_alternatives=int(arguments.get("similar_alternatives", 3)),
                 license_constraints=arguments.get("license_constraints"),
                 svg_output_path=Path(svg_output).expanduser() if svg_output else None,
+                install_to=Path(install_to).expanduser() if install_to else None,
+                handoff_output_path=Path(handoff_output).expanduser() if handoff_output else None,
+                css_output_path=Path(css_output).expanduser() if css_output else None,
+                remotion_output_path=Path(remotion_output).expanduser() if remotion_output else None,
             )
         if name == "generate_typography_handoff":
             return self.service.generate_typography_handoff(

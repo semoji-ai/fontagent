@@ -411,6 +411,139 @@ class ComposeTextLayersTests(unittest.TestCase):
                 self.assertIn(layer["match_reasoning"]["winner_source"],
                               {"identify_only", "recommend_only", "identify+recommend"})
 
+    def test_compose_text_layers_emits_confidence_handoff_and_exports(self) -> None:
+        fonts = _available_fonts()
+        if len(fonts) < 2:
+            self.skipTest("need at least two TTF fonts")
+        from fontagent.service import FontAgentService
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                '{"fonts": []}', encoding="utf-8"
+            )
+            service = FontAgentService(root)
+            service.ensure_catalog_ready()
+
+            from fontagent.font_identify import build_index
+            from fontagent.font_identify.index import FontSource
+
+            sources = [
+                FontSource(fid, family, path, languages=["en"])
+                for fid, family, path in fonts
+            ]
+            build_index(
+                sources,
+                index_dir=service.font_identify_index_dir,
+                language_hint="en",
+            )
+            for fid, family, path in fonts:
+                service.repository.upsert_many([
+                    {
+                        "font_id": fid,
+                        "family": family,
+                        "slug": fid,
+                        "source_site": "fixture",
+                        "source_page_url": f"file://{path}",
+                        "license_id": "OFL",
+                        "license_summary": "Fixture OFL",
+                        "commercial_use_allowed": True,
+                        "video_use_allowed": True,
+                        "web_embedding_allowed": True,
+                        "redistribution_allowed": True,
+                        "languages": ["en"],
+                        "tags": ["serif"],
+                        "recommended_for": ["title"],
+                        "download_type": "manual_only",
+                        "download_url": "",
+                        "download_source": "fixture",
+                        "format": "ttf",
+                        "variable_font": False,
+                    }
+                ])
+
+            # Simulate a successful install for every font so the CSS /
+            # Remotion exports have paths to embed.
+            def fake_install(font_id, output_dir, persist_result=True):
+                installed_path = Path(output_dir) / f"{font_id}.ttf"
+                installed_path.parent.mkdir(parents=True, exist_ok=True)
+                installed_path.write_bytes(b"fake")
+                return {
+                    "status": "installed",
+                    "font_id": font_id,
+                    "installed_files": [str(installed_path)],
+                }
+
+            service.install = fake_install  # type: ignore[assignment]
+
+            _, _, target_path = fonts[0]
+            poster = Image.new("RGB", (800, 300), color=(250, 248, 240))
+            draw = ImageDraw.Draw(poster)
+            draw.text(
+                (20, 20), "HELLO",
+                fill=(10, 10, 10),
+                font=ImageFont.truetype(str(target_path), 96),
+            )
+            poster_path = root / "poster.png"
+            poster.save(poster_path)
+
+            regions = [
+                {
+                    "bbox": [10, 10, 500, 140],
+                    "text": "HELLO",
+                    "role": "title",
+                    "style_hints": ["serif"],
+                    "language": "en",
+                }
+            ]
+
+            result = service.compose_text_layers(
+                image_path=poster_path,
+                regions=regions,
+                similar_alternatives=1,
+                install_to=root / "assets" / "fonts",
+                handoff_output_path=root / "handoff.json",
+                css_output_path=root / "fonts.css",
+                remotion_output_path=root / "remotionFonts.ts",
+            )
+
+            # Every layer has a populated confidence in (0, 1] plus a tier.
+            layer = result["text_layers"][0]
+            self.assertIn("confidence", layer)
+            self.assertGreater(layer["confidence"], 0.0)
+            self.assertLessEqual(layer["confidence"], 1.0)
+            self.assertIn(layer["confidence_tier"], {"low", "medium", "high"})
+
+            # Install block should carry the installed_files and status.
+            install_block = layer["font"]["install"]
+            self.assertEqual(install_block["install_status"], "installed")
+            self.assertTrue(install_block["installed_files"])
+
+            # Exports produced both CSS and Remotion content.
+            self.assertTrue((root / "fonts.css").exists())
+            self.assertTrue((root / "remotionFonts.ts").exists())
+            css_body = (root / "fonts.css").read_text(encoding="utf-8")
+            self.assertIn("@font-face", css_body)
+            remotion_body = (root / "remotionFonts.ts").read_text(encoding="utf-8")
+            self.assertIn("fontAgentTextLayerFonts", remotion_body)
+
+            # Handoff contract has the right shape.
+            handoff_path = root / "handoff.json"
+            self.assertTrue(handoff_path.exists())
+            import json
+
+            contract = json.loads(handoff_path.read_text(encoding="utf-8"))
+            self.assertEqual(contract["contract"], "fontagent.text-layer-handoff.v1")
+            self.assertEqual(len(contract["layers"]), 1)
+            self.assertIn("confidence", contract["layers"][0])
+            self.assertEqual(contract["layers"][0]["font"]["install"], install_block)
+
+            # installation_summary is attached to the response.
+            summary = result["installation_summary"]
+            self.assertEqual(summary["unique_fonts"], 1)
+            self.assertEqual(summary["status_counts"]["installed"], 1)
+
     def test_compose_text_layers_applies_license_constraints(self) -> None:
         fonts = _available_fonts()
         if len(fonts) < 2:

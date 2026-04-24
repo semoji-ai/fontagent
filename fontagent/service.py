@@ -3440,6 +3440,10 @@ class FontAgentService:
         license_constraints: dict | None = None,
         similar_alternatives: int = 3,
         svg_output_path: Path | None = None,
+        install_to: Path | None = None,
+        handoff_output_path: Path | None = None,
+        css_output_path: Path | None = None,
+        remotion_output_path: Path | None = None,
     ) -> dict:
         """Match a font to each pre-identified text region in an image.
 
@@ -3448,6 +3452,13 @@ class FontAgentService:
         bbox, the text content, and optional hints (role, style_hints,
         language) that drive the font recommendation step. FontAgent does
         not run OCR itself — the LLM caller owns that responsibility.
+
+        When `install_to` is provided, each unique winner font is
+        downloaded and installed into that directory. The per-layer
+        `font.install` block is extended with the installed file paths
+        and install_status, and combined CSS (`@font-face`) / Remotion
+        configuration / handoff contract artifacts are emitted when
+        their respective output paths are set.
         """
         from PIL import Image  # noqa: WPS433
 
@@ -3481,6 +3492,7 @@ class FontAgentService:
                     similar_alternatives=similar_alternatives,
                     identify_from_image=identify_from_image,
                 )
+                self._attach_layer_confidence(layer)
                 text_layers.append(layer)
 
         payload: dict = {
@@ -3492,6 +3504,13 @@ class FontAgentService:
             "text_layers": text_layers,
         }
 
+        if install_to is not None:
+            install_summary = self._install_winner_fonts(
+                text_layers=text_layers,
+                install_dir=Path(install_to),
+            )
+            payload["installation_summary"] = install_summary
+
         if svg_output_path is not None:
             svg_markup = self._render_text_layers_svg(
                 size=source.size,
@@ -3502,7 +3521,245 @@ class FontAgentService:
             output_path.write_text(svg_markup, encoding="utf-8")
             payload["svg_preview_path"] = str(output_path)
 
+        exports = self._build_text_layer_exports(text_layers=text_layers)
+        payload["exports"] = exports
+
+        if css_output_path is not None and exports.get("css"):
+            output_path = Path(css_output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(exports["css"], encoding="utf-8")
+            payload["css_output_path"] = str(output_path)
+
+        if remotion_output_path is not None and exports.get("remotion"):
+            output_path = Path(remotion_output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(exports["remotion"], encoding="utf-8")
+            payload["remotion_output_path"] = str(output_path)
+
+        if handoff_output_path is not None:
+            contract = self._build_text_layer_handoff_contract(
+                image_path=Path(image_path),
+                text_layers=text_layers,
+                license_constraints=normalized_constraints,
+            )
+            output_path = Path(handoff_output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(contract, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            payload["handoff_contract"] = contract
+            payload["handoff_output_path"] = str(output_path)
+
         return payload
+
+    def _attach_layer_confidence(self, layer: dict) -> None:
+        """Write a 0..1 confidence score onto `layer['font']` in place."""
+        font = layer.get("font")
+        if not font:
+            layer["confidence"] = 0.0
+            layer["confidence_tier"] = "none"
+            return
+        sources = font.get("match_sources") or {}
+        identify_rank = sources.get("identify_rank")
+        recommend_rank = sources.get("recommend_rank")
+
+        def _rank_to_score(rank: int | None) -> float:
+            if rank is None:
+                return 0.0
+            return max(0.0, 1.0 - (rank - 1) * 0.1)
+
+        identify_score = _rank_to_score(identify_rank)
+        recommend_score = _rank_to_score(recommend_rank)
+
+        if identify_rank is not None and recommend_rank is not None:
+            # Both channels agreed; average with a small agreement bonus.
+            confidence = min(1.0, (identify_score + recommend_score) / 2 + 0.15)
+        elif identify_rank is not None or recommend_rank is not None:
+            # Only one channel — the other didn't place this font at all.
+            confidence = max(identify_score, recommend_score) * 0.7
+        else:
+            confidence = 0.0
+
+        if confidence >= 0.8:
+            tier = "high"
+        elif confidence >= 0.5:
+            tier = "medium"
+        elif confidence > 0:
+            tier = "low"
+        else:
+            tier = "none"
+
+        font["confidence"] = round(float(confidence), 4)
+        font["confidence_tier"] = tier
+        layer["confidence"] = font["confidence"]
+        layer["confidence_tier"] = tier
+
+    def _install_winner_fonts(
+        self,
+        *,
+        text_layers: list[dict],
+        install_dir: Path,
+    ) -> dict:
+        """Install every unique winner font to `install_dir`, in place."""
+        install_dir.mkdir(parents=True, exist_ok=True)
+        per_font_results: dict[str, dict] = {}
+        statuses = {"installed": 0, "manual_required": 0, "error": 0, "unknown": 0}
+
+        for layer in text_layers:
+            font = layer.get("font")
+            if not font:
+                continue
+            font_id = font.get("font_id")
+            if not font_id:
+                continue
+            if font_id not in per_font_results:
+                per_font_results[font_id] = self._attempt_font_install(font_id, install_dir)
+            result = per_font_results[font_id]
+            install_block = font.setdefault("install", {})
+            install_block["install_status"] = result.get("status", "unknown")
+            install_block["installed_files"] = list(result.get("installed_files", []))
+            if result.get("message"):
+                install_block["install_message"] = result["message"]
+            install_block["install_dir"] = str(install_dir)
+            statuses[result.get("status", "unknown")] = statuses.get(result.get("status", "unknown"), 0) + 1
+
+        return {
+            "install_dir": str(install_dir),
+            "unique_fonts": len(per_font_results),
+            "per_font_results": per_font_results,
+            "status_counts": statuses,
+        }
+
+    def _attempt_font_install(self, font_id: str, install_dir: Path) -> dict:
+        try:
+            return self.install(font_id, install_dir)
+        except KeyError as exc:
+            return {"status": "unknown", "message": str(exc), "installed_files": []}
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "error", "message": str(exc), "installed_files": []}
+
+    def _build_text_layer_exports(self, *, text_layers: list[dict]) -> dict:
+        """Assemble a combined CSS @font-face block and a Remotion font map.
+
+        Unique fonts across all text layers are emitted once; each rule
+        uses the locally installed file path when available, otherwise
+        the remote `download_url` is used as src.
+        """
+        seen: set[str] = set()
+        css_parts: list[str] = [
+            "/* FontAgent auto-generated @font-face bundle for text layers */",
+        ]
+        remotion_entries: list[str] = []
+
+        for layer in text_layers:
+            font = layer.get("font")
+            if not font:
+                continue
+            font_id = font.get("font_id")
+            if not font_id or font_id in seen:
+                continue
+            seen.add(font_id)
+            family = font.get("family") or font_id
+            install_block = font.get("install") or {}
+            installed_files = list(install_block.get("installed_files") or [])
+            src_path = installed_files[0] if installed_files else install_block.get("download_url", "")
+            format_hint = self._css_format_for_path(src_path)
+            if src_path:
+                css_parts.append(
+                    "@font-face {\n"
+                    f"  font-family: '{family}';\n"
+                    f"  src: url('{src_path}') format('{format_hint}');\n"
+                    "  font-display: swap;\n"
+                    "}"
+                )
+            else:
+                css_parts.append(
+                    f"/* Skipped @font-face for {family} ({font_id}) — no installable source */"
+                )
+            remotion_entries.append(
+                "  {"
+                f"\n    fontId: '{font_id}',"
+                f"\n    family: '{family}',"
+                f"\n    localPath: '{src_path}',"
+                "\n  }"
+            )
+
+        remotion_block = (
+            "// FontAgent auto-generated Remotion font registration table\n"
+            "export const fontAgentTextLayerFonts = [\n"
+            + ",\n".join(remotion_entries)
+            + ("\n]" if remotion_entries else "]")
+            + ";\n"
+        )
+        return {
+            "css": "\n\n".join(css_parts) + "\n" if len(css_parts) > 1 else "",
+            "remotion": remotion_block,
+            "unique_fonts": len(seen),
+        }
+
+    def _css_format_for_path(self, src_path: str) -> str:
+        suffix = Path(str(src_path)).suffix.lower()
+        return {
+            ".ttf": "truetype",
+            ".otf": "opentype",
+            ".woff": "woff",
+            ".woff2": "woff2",
+            ".ttc": "truetype",
+            ".otc": "opentype",
+        }.get(suffix, "truetype")
+
+    def _build_text_layer_handoff_contract(
+        self,
+        *,
+        image_path: Path,
+        text_layers: list[dict],
+        license_constraints: dict | None,
+    ) -> dict:
+        return {
+            "contract": "fontagent.text-layer-handoff.v1",
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "image_path": str(Path(image_path)),
+            "license_constraints": license_constraints or {},
+            "layers": [
+                {
+                    "region_index": layer.get("region_index"),
+                    "bbox": layer.get("bbox"),
+                    "text": layer.get("text"),
+                    "role": layer.get("role"),
+                    "language": layer.get("language"),
+                    "confidence": layer.get("confidence"),
+                    "confidence_tier": layer.get("confidence_tier"),
+                    "font": self._handoff_font_entry(layer.get("font")),
+                    "similar_alternatives": [
+                        self._handoff_font_entry(alt, include_match_sources=False)
+                        for alt in layer.get("similar_alternatives", [])
+                    ],
+                }
+                for layer in text_layers
+            ],
+        }
+
+    def _handoff_font_entry(
+        self,
+        font: dict | None,
+        *,
+        include_match_sources: bool = True,
+    ) -> dict | None:
+        if not font:
+            return None
+        entry = {
+            "font_id": font.get("font_id"),
+            "family": font.get("family"),
+            "license": font.get("license"),
+            "source": font.get("source"),
+            "install": font.get("install"),
+        }
+        if include_match_sources:
+            entry["match_sources"] = font.get("match_sources")
+            entry["confidence"] = font.get("confidence")
+            entry["confidence_tier"] = font.get("confidence_tier")
+        return entry
 
     def _coerce_region_spec(self, raw: dict) -> dict | None:
         bbox = raw.get("bbox") if isinstance(raw, dict) else None
