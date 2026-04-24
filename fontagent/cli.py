@@ -361,10 +361,49 @@ def main() -> None:
     compose_layers.add_argument("--handoff-output")
     compose_layers.add_argument("--css-output")
     compose_layers.add_argument("--remotion-output")
+    compose_layers.add_argument("--preset")
     compose_layers.add_argument("--commercial-use", action="store_true")
     compose_layers.add_argument("--video-use", action="store_true")
     compose_layers.add_argument("--web-embedding", action="store_true")
     compose_layers.add_argument("--redistribution", action="store_true")
+
+    list_presets = subparsers.add_parser("list-typography-presets")
+    list_presets.add_argument("--language")
+    list_presets.add_argument("--medium")
+    list_presets.add_argument("--surface")
+    list_presets.add_argument("--source")
+
+    get_preset = subparsers.add_parser("get-typography-preset")
+    get_preset.add_argument("preset_id")
+
+    recommend_preset = subparsers.add_parser("recommend-typography-preset")
+    recommend_preset.add_argument("--tone", action="append", default=[])
+    recommend_preset.add_argument("--language", action="append", default=[])
+    recommend_preset.add_argument("--medium")
+    recommend_preset.add_argument("--surface")
+    recommend_preset.add_argument("--count", type=int, default=3)
+
+    save_preset = subparsers.add_parser("save-typography-preset")
+    save_preset.add_argument("--preset-id", required=True)
+    save_preset.add_argument("--name", required=True)
+    save_preset.add_argument("--description", default="")
+    save_preset.add_argument("--tone", action="append", default=[])
+    save_preset.add_argument("--language", action="append", default=[])
+    save_preset.add_argument("--medium", action="append", default=[])
+    save_preset.add_argument("--surface", action="append", default=[])
+    save_preset.add_argument(
+        "--role-assignments",
+        required=True,
+        help='JSON or file path, e.g. {"title":{"font_id":"foo","fallback_font_ids":[],"pairing_reason":""},...}',
+    )
+    save_preset.add_argument("--source", default="manual")
+    save_preset.add_argument("--source-url", default="")
+    save_preset.add_argument("--reference-image-path", default="")
+    save_preset.add_argument("--confidence", type=float, default=0.7)
+    save_preset.add_argument("--verified", action="store_true")
+
+    delete_preset = subparsers.add_parser("delete-typography-preset")
+    delete_preset.add_argument("preset_id")
 
     subparsers.add_parser("mcp")
 
@@ -816,8 +855,62 @@ def main() -> None:
                     handoff_output_path=Path(args.handoff_output) if args.handoff_output else None,
                     css_output_path=Path(args.css_output) if args.css_output else None,
                     remotion_output_path=Path(args.remotion_output) if args.remotion_output else None,
+                    preset_id=args.preset,
                 )
             )
+        elif args.command == "list-typography-presets":
+            service.ensure_catalog_ready()
+            _print({
+                "presets": service.list_typography_presets(
+                    language=args.language,
+                    medium=args.medium,
+                    surface=args.surface,
+                    source=args.source,
+                )
+            })
+        elif args.command == "get-typography-preset":
+            service.ensure_catalog_ready()
+            preset = service.get_typography_preset(args.preset_id)
+            if preset is None:
+                raise KeyError(f"preset not found: {args.preset_id}")
+            _print(preset)
+        elif args.command == "recommend-typography-preset":
+            service.ensure_catalog_ready()
+            _print({
+                "results": service.recommend_typography_preset(
+                    tones=args.tone or None,
+                    languages=args.language or None,
+                    medium=args.medium,
+                    surface=args.surface,
+                    count=args.count,
+                )
+            })
+        elif args.command == "save-typography-preset":
+            service.ensure_catalog_ready()
+            roles_arg = args.role_assignments
+            roles_source = Path(roles_arg)
+            if roles_source.exists():
+                role_assignments = json.loads(roles_source.read_text(encoding="utf-8"))
+            else:
+                role_assignments = json.loads(roles_arg)
+            _print(service.save_typography_preset(
+                preset_id=args.preset_id,
+                name=args.name,
+                description=args.description,
+                tones=args.tone,
+                languages=args.language,
+                mediums=args.medium,
+                surfaces=args.surface,
+                role_assignments=role_assignments,
+                source=args.source,
+                source_url=args.source_url,
+                reference_image_path=args.reference_image_path,
+                confidence=args.confidence,
+                verified=args.verified,
+            ))
+        elif args.command == "delete-typography-preset":
+            service.ensure_catalog_ready()
+            _print(service.delete_typography_preset(args.preset_id))
         elif args.command == "serve":
             service.ensure_catalog_ready(auto_scan_system=True)
             serve(root, host=args.host, port=args.port)

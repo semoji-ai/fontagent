@@ -266,6 +266,79 @@ class FontAgentMCPApplication:
                 },
             },
             {
+                "name": "list_typography_presets",
+                "title": "List Typography Presets",
+                "description": "저장된 모든 typography preset (title/subtitle/body 폰트 패밀리 조합)을 반환합니다. 언어/매체/서페이스/출처로 필터링 가능.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "language": {"type": "string"},
+                        "medium": {"type": "string"},
+                        "surface": {"type": "string"},
+                        "source": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "get_typography_preset",
+                "title": "Get Typography Preset",
+                "description": "preset_id 로 단일 preset 을 조회합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"preset_id": {"type": "string"}},
+                    "required": ["preset_id"],
+                },
+            },
+            {
+                "name": "recommend_typography_preset",
+                "title": "Recommend Typography Preset",
+                "description": "tones/languages/medium/surface 조건으로 가장 잘 맞는 preset 을 랭킹해서 반환합니다. compose_text_layers 에 바로 먹일 수 있는 preset_id 를 제안.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "tones": {"type": "array", "items": {"type": "string"}},
+                        "languages": {"type": "array", "items": {"type": "string"}},
+                        "medium": {"type": "string"},
+                        "surface": {"type": "string"},
+                        "count": {"type": "integer"},
+                    },
+                },
+            },
+            {
+                "name": "save_typography_preset",
+                "title": "Save Typography Preset",
+                "description": "새 preset 을 저장하거나 기존 preset 을 업데이트합니다. 수동 큐레이션 또는 레퍼런스 이미지에서 학습된 결과를 카탈로그에 영속화할 때 사용.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "preset_id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "tones": {"type": "array", "items": {"type": "string"}},
+                        "languages": {"type": "array", "items": {"type": "string"}},
+                        "mediums": {"type": "array", "items": {"type": "string"}},
+                        "surfaces": {"type": "array", "items": {"type": "string"}},
+                        "role_assignments": {"type": "object"},
+                        "source": {"type": "string"},
+                        "source_url": {"type": "string"},
+                        "reference_image_path": {"type": "string"},
+                        "confidence": {"type": "number"},
+                        "verified": {"type": "boolean"},
+                    },
+                    "required": ["preset_id", "name", "role_assignments"],
+                },
+            },
+            {
+                "name": "delete_typography_preset",
+                "title": "Delete Typography Preset",
+                "description": "preset_id 로 preset 을 삭제합니다.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"preset_id": {"type": "string"}},
+                    "required": ["preset_id"],
+                },
+            },
+            {
                 "name": "compose_text_layers",
                 "title": "Compose Text Layers",
                 "description": "포스터/장면 이미지에 대해 호출자가 미리 OCR·영역 분할해둔 regions 배열을 입력으로 받아, 각 영역에 시각적 identify + 역할/스타일 기반 recommend 를 hybrid(RRF)로 결합해 최적 폰트를 배정합니다. 각 text layer 는 font 상세(라이선스/source/install/confidence) 와 유사 대안을 포함합니다. install_to 가 지정되면 승자 폰트를 해당 디렉터리에 자동 설치하고, css/remotion/handoff output 경로를 넘기면 @font-face, Remotion 폰트 맵, text-layer-handoff.v1 계약을 함께 출력합니다. OCR 은 FontAgent 에서 수행하지 않습니다 — 멀티모달 LLM 이 regions 를 생성해 넘겨주는 것이 전제.",
@@ -299,6 +372,7 @@ class FontAgentMCPApplication:
                         "handoff_output_path": {"type": "string"},
                         "css_output_path": {"type": "string"},
                         "remotion_output_path": {"type": "string"},
+                        "preset_id": {"type": "string"},
                         "license_constraints": {
                             "type": "object",
                             "properties": {
@@ -537,7 +611,52 @@ class FontAgentMCPApplication:
                 handoff_output_path=Path(handoff_output).expanduser() if handoff_output else None,
                 css_output_path=Path(css_output).expanduser() if css_output else None,
                 remotion_output_path=Path(remotion_output).expanduser() if remotion_output else None,
+                preset_id=arguments.get("preset_id"),
             )
+        if name == "list_typography_presets":
+            return {"presets": self.service.list_typography_presets(
+                language=arguments.get("language"),
+                medium=arguments.get("medium"),
+                surface=arguments.get("surface"),
+                source=arguments.get("source"),
+            )}
+        if name == "get_typography_preset":
+            preset_id = arguments.get("preset_id") or ""
+            if not preset_id:
+                raise ValueError("preset_id is required")
+            preset = self.service.get_typography_preset(preset_id)
+            if preset is None:
+                raise KeyError(f"preset not found: {preset_id}")
+            return preset
+        if name == "recommend_typography_preset":
+            return {"results": self.service.recommend_typography_preset(
+                tones=arguments.get("tones"),
+                languages=arguments.get("languages"),
+                medium=arguments.get("medium"),
+                surface=arguments.get("surface"),
+                count=int(arguments.get("count", 3)),
+            )}
+        if name == "save_typography_preset":
+            return self.service.save_typography_preset(
+                preset_id=arguments.get("preset_id") or "",
+                name=arguments.get("name") or "",
+                description=arguments.get("description", ""),
+                tones=arguments.get("tones"),
+                languages=arguments.get("languages"),
+                mediums=arguments.get("mediums"),
+                surfaces=arguments.get("surfaces"),
+                role_assignments=arguments.get("role_assignments") or {},
+                source=arguments.get("source", "manual"),
+                source_url=arguments.get("source_url", ""),
+                reference_image_path=arguments.get("reference_image_path", ""),
+                confidence=float(arguments.get("confidence", 0.7)),
+                verified=bool(arguments.get("verified", False)),
+            )
+        if name == "delete_typography_preset":
+            preset_id = arguments.get("preset_id") or ""
+            if not preset_id:
+                raise ValueError("preset_id is required")
+            return self.service.delete_typography_preset(preset_id)
         if name == "generate_typography_handoff":
             return self.service.generate_typography_handoff(
                 project_path=Path(arguments["project_path"]).expanduser(),

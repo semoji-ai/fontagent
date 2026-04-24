@@ -90,6 +90,24 @@ CREATE TABLE IF NOT EXISTS font_reference_reviews (
     created_at TEXT NOT NULL,
     FOREIGN KEY(reference_id) REFERENCES font_references(reference_id)
 );
+
+CREATE TABLE IF NOT EXISTS typography_presets (
+    preset_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    tones_json TEXT NOT NULL DEFAULT '[]',
+    languages_json TEXT NOT NULL DEFAULT '[]',
+    mediums_json TEXT NOT NULL DEFAULT '[]',
+    surfaces_json TEXT NOT NULL DEFAULT '[]',
+    role_assignments_json TEXT NOT NULL DEFAULT '{}',
+    source TEXT NOT NULL DEFAULT 'manual',
+    source_url TEXT NOT NULL DEFAULT '',
+    reference_image_path TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.7,
+    verified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 MIGRATIONS = {

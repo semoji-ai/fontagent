@@ -22,6 +22,7 @@ from .font_system import (
 )
 from .font_cohorts import cohort_fit_for_request
 from .interviews import build_interview_plan, list_interview_catalog
+from .typography_presets import get_seed_presets
 from .license_policy import SOURCE_LICENSE_POLICIES, get_source_license_policy
 from .noonnu import fetch_noonnu_snapshot
 from .installer import install_font
@@ -265,13 +266,247 @@ class FontAgentService:
             seeded = self.init()
         if auto_scan_system and self._font_count_for_source("system_local") == 0:
             scanned = int(self.scan_system_fonts().get("upserted", 0))
+        preset_count = self.ensure_typography_presets_seeded()
         self._ensure_reference_vault_paths()
         return {
             "db_path": str(self.db_path),
             "seeded": seeded,
             "system_scanned": scanned,
             "total_fonts": self._font_count(),
+            "typography_presets": preset_count,
         }
+
+    def ensure_typography_presets_seeded(self) -> int:
+        """Seed curated presets the first time they're needed.
+
+        Only inserts if the table is empty so manual edits persist
+        across init runs.
+        """
+        existing = self.repository.list_typography_presets()
+        if existing:
+            return len(existing)
+        for entry in get_seed_presets():
+            self.repository.upsert_typography_preset(entry)
+        return len(get_seed_presets())
+
+    # ----- Typography presets -----
+
+    def list_typography_presets(
+        self,
+        *,
+        language: Optional[str] = None,
+        medium: Optional[str] = None,
+        surface: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> list[dict]:
+        presets = self.repository.list_typography_presets(
+            language=language,
+            medium=medium,
+            surface=surface,
+            source=source,
+        )
+        return [asdict(preset) for preset in presets]
+
+    def get_typography_preset(self, preset_id: str) -> Optional[dict]:
+        preset = self.repository.get_typography_preset(preset_id)
+        return asdict(preset) if preset else None
+
+    def save_typography_preset(
+        self,
+        *,
+        preset_id: str,
+        name: str,
+        description: str = "",
+        tones: list[str] | None = None,
+        languages: list[str] | None = None,
+        mediums: list[str] | None = None,
+        surfaces: list[str] | None = None,
+        role_assignments: dict | None = None,
+        source: str = "manual",
+        source_url: str = "",
+        reference_image_path: str = "",
+        confidence: float = 0.7,
+        verified: bool = False,
+    ) -> dict:
+        self.repository.upsert_typography_preset({
+            "preset_id": preset_id,
+            "name": name,
+            "description": description,
+            "tones": tones or [],
+            "languages": languages or [],
+            "mediums": mediums or [],
+            "surfaces": surfaces or [],
+            "role_assignments": role_assignments or {},
+            "source": source,
+            "source_url": source_url,
+            "reference_image_path": reference_image_path,
+            "confidence": confidence,
+            "verified": verified,
+        })
+        stored = self.repository.get_typography_preset(preset_id)
+        return asdict(stored) if stored else {}
+
+    def delete_typography_preset(self, preset_id: str) -> dict:
+        deleted = self.repository.delete_typography_preset(preset_id)
+        return {"preset_id": preset_id, "deleted": deleted}
+
+    def recommend_typography_preset(
+        self,
+        *,
+        tones: list[str] | None = None,
+        languages: list[str] | None = None,
+        medium: str | None = None,
+        surface: str | None = None,
+        count: int = 3,
+    ) -> list[dict]:
+        """Rank stored presets by how well they match the request.
+
+        Scoring:
+            + 3 per matched tone (exact, case-insensitive)
+            + 2 per matched language
+            + 2 if medium is listed
+            + 2 if surface is listed
+            + confidence * 2 (curators / learners can rate presets)
+
+        Returns the top `count` as enriched dicts with a `match_score`
+        field and a short `match_reasons` list suitable for display.
+        """
+        tone_set = {t.lower() for t in (tones or []) if t}
+        lang_set = {l.lower() for l in (languages or []) if l}
+        medium_key = (medium or "").strip().lower()
+        surface_key = (surface or "").strip().lower()
+
+        scored: list[tuple[float, list[str], dict]] = []
+        for preset in self.repository.list_typography_presets():
+            reasons: list[str] = []
+            score = preset.confidence * 2.0
+
+            preset_tones = {t.lower() for t in preset.tones}
+            tone_overlap = preset_tones & tone_set
+            if tone_overlap:
+                score += 3.0 * len(tone_overlap)
+                reasons.append(f"공통 톤 {len(tone_overlap)}개: {', '.join(sorted(tone_overlap))}")
+
+            preset_langs = {l.lower() for l in preset.languages}
+            lang_overlap = preset_langs & lang_set
+            if lang_overlap:
+                score += 2.0 * len(lang_overlap)
+                reasons.append(f"언어 지원: {', '.join(sorted(lang_overlap))}")
+
+            if medium_key and medium_key in {m.lower() for m in preset.mediums}:
+                score += 2.0
+                reasons.append(f"매체 매칭: {medium_key}")
+            if surface_key and surface_key in {s.lower() for s in preset.surfaces}:
+                score += 2.0
+                reasons.append(f"서페이스 매칭: {surface_key}")
+
+            entry = asdict(preset)
+            entry["match_score"] = round(score, 4)
+            entry["match_reasons"] = reasons
+            scored.append((score, reasons, entry))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [entry for _, _, entry in scored[:count]]
+
+    def save_preset_from_compose(
+        self,
+        *,
+        compose_result: dict,
+        preset_id: str,
+        name: str,
+        description: str = "",
+        tones: list[str] | None = None,
+        languages: list[str] | None = None,
+        mediums: list[str] | None = None,
+        surfaces: list[str] | None = None,
+        source: str = "learned_from_compose",
+        source_url: str = "",
+    ) -> dict:
+        """Turn a compose_text_layers result into a reusable preset.
+
+        Each text layer's role is mapped to the winning font_id, with
+        the layer's similar_alternatives populated as fallback_font_ids.
+        The caller supplies metadata (name, tones, etc.) since those
+        don't come from the compose output itself.
+        """
+        layers = compose_result.get("text_layers") or []
+        role_assignments: dict = {}
+        observed_languages: set[str] = set()
+        for layer in layers:
+            role = (layer.get("role") or "").strip()
+            font = layer.get("font") or {}
+            font_id = font.get("font_id")
+            if not role or not font_id:
+                continue
+            alternatives = [
+                alt.get("font_id")
+                for alt in (layer.get("similar_alternatives") or [])
+                if alt.get("font_id")
+            ]
+            pairing_reason = (
+                layer.get("match_reasoning", {}).get("winner_source") or ""
+            )
+            role_assignments[role] = {
+                "font_id": font_id,
+                "fallback_font_ids": alternatives[:3],
+                "pairing_reason": f"learned from compose ({pairing_reason})" if pairing_reason else "",
+            }
+            for lang in (layer.get("language") or "").split(","):
+                lang = lang.strip().lower()
+                if lang:
+                    observed_languages.add(lang)
+
+        return self.save_typography_preset(
+            preset_id=preset_id,
+            name=name,
+            description=description,
+            tones=tones or [],
+            languages=languages or sorted(observed_languages),
+            mediums=mediums or [],
+            surfaces=surfaces or [],
+            role_assignments=role_assignments,
+            source=source,
+            source_url=source_url,
+            reference_image_path=str(compose_result.get("image_path") or ""),
+            confidence=0.75,
+            verified=False,
+        )
+
+    def apply_preset_to_region(
+        self,
+        preset: dict,
+        *,
+        role: str,
+        license_constraints: dict | None = None,
+    ) -> dict | None:
+        """Resolve a preset's role → font_id, honoring fallbacks + license.
+
+        Returns a font profile (same shape as compose winner) or None if
+        nothing in the preset's chain satisfies the constraints.
+        """
+        assignments = preset.get("role_assignments") or {}
+        role_entry = assignments.get(role) or assignments.get(role.lower())
+        if not role_entry:
+            return None
+        candidates = [role_entry.get("font_id")] + list(role_entry.get("fallback_font_ids") or [])
+        normalized_constraints = self._normalize_license_constraints(license_constraints)
+        for font_id in candidates:
+            if not font_id:
+                continue
+            if not self._font_id_satisfies_constraints(font_id, normalized_constraints):
+                continue
+            profile = self._build_font_profile(font_id)
+            if profile is None:
+                continue
+            profile["match_sources"] = {
+                "preset_id": preset.get("preset_id"),
+                "preset_name": preset.get("name"),
+                "role": role,
+                "pairing_reason": role_entry.get("pairing_reason", ""),
+            }
+            profile["hybrid_score"] = None
+            return profile
+        return None
 
     def scan_system_fonts(self, *, timeout: int = 20) -> dict:
         records = scan_system_font_records(timeout=timeout)
@@ -3453,6 +3688,7 @@ class FontAgentService:
         handoff_output_path: Path | None = None,
         css_output_path: Path | None = None,
         remotion_output_path: Path | None = None,
+        preset_id: str | None = None,
     ) -> dict:
         """Match a font to each pre-identified text region in an image.
 
@@ -3482,6 +3718,12 @@ class FontAgentService:
         index = load_index(index_dir)
         normalized_constraints = self._normalize_license_constraints(license_constraints)
 
+        preset_dict: dict | None = None
+        if preset_id:
+            preset_dict = self.get_typography_preset(preset_id)
+            if preset_dict is None:
+                raise RuntimeError(f"typography preset not found: {preset_id}")
+
         source = Image.open(Path(image_path)).convert("RGB")
         text_layers: list[dict] = []
 
@@ -3500,6 +3742,7 @@ class FontAgentService:
                     license_constraints=normalized_constraints,
                     similar_alternatives=similar_alternatives,
                     identify_from_image=identify_from_image,
+                    preset=preset_dict,
                 )
                 self._attach_layer_confidence(layer)
                 text_layers.append(layer)
@@ -3510,6 +3753,10 @@ class FontAgentService:
             "index_dir": str(index_dir),
             "index_fonts": len(index.manifest.get("fonts", [])),
             "license_constraints_applied": normalized_constraints,
+            "preset_applied": {
+                "preset_id": preset_dict.get("preset_id"),
+                "preset_name": preset_dict.get("name"),
+            } if preset_dict else None,
             "text_layers": text_layers,
         }
 
@@ -3800,6 +4047,7 @@ class FontAgentService:
         license_constraints: dict | None,
         similar_alternatives: int,
         identify_from_image,  # noqa: ANN001
+        preset: dict | None = None,
     ) -> dict:
         bbox = region["bbox"]
         text = region["text"]
@@ -3872,8 +4120,27 @@ class FontAgentService:
             if self._font_id_satisfies_constraints(entry["font_id"], license_constraints)
         ]
 
-        winner = ranked[0] if ranked else None
-        alternatives = ranked[1 : 1 + similar_alternatives]
+        preset_winner: dict | None = None
+        if preset is not None:
+            preset_winner = self.apply_preset_to_region(
+                preset,
+                role=role,
+                license_constraints=license_constraints,
+            )
+
+        if preset_winner is not None:
+            winner = preset_winner
+            # Alternatives show what the hybrid would have picked — a
+            # useful escape hatch when the preset's font doesn't fit
+            # the specific crop. Skip the preset winner itself so we
+            # don't list the same font twice.
+            preset_font_id = preset_winner.get("font_id")
+            alternatives = [
+                entry for entry in ranked if entry.get("font_id") != preset_font_id
+            ][:similar_alternatives]
+        else:
+            winner = ranked[0] if ranked else None
+            alternatives = ranked[1 : 1 + similar_alternatives]
 
         return {
             "region_index": region_index,
@@ -3892,7 +4159,9 @@ class FontAgentService:
                 "recommend_task": task_text,
                 "recommend_top": recommend_matches[0]["font_id"] if recommend_matches else None,
                 "recommend_error": recommend_error,
-                "winner_source": self._describe_winner_source(winner),
+                "preset_used": bool(preset_winner),
+                "preset_id": preset.get("preset_id") if preset else None,
+                "winner_source": ("preset" if preset_winner else self._describe_winner_source(winner)),
                 "identify_candidates_considered": len(identify_matches),
                 "recommend_candidates_considered": len(recommend_matches),
             },

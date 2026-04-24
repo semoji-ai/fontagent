@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .db import connect, initialize
-from .models import FontCandidate, FontRecord, FontReference, FontReferenceReview
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+from .models import (
+    FontCandidate,
+    FontRecord,
+    FontReference,
+    FontReferenceReview,
+    TypographyPreset,
+)
 
 
 class FontRepository:
@@ -465,4 +476,122 @@ class FontRepository:
             status=row["status"],
             notes=json.loads(row["notes_json"]),
             created_at=row["created_at"],
+        )
+
+    # ----- Typography presets -----
+
+    def upsert_typography_preset(self, preset: dict) -> str:
+        """Insert or update a preset. Returns the preset_id."""
+        preset_id = str(preset.get("preset_id") or "").strip()
+        if not preset_id:
+            raise ValueError("preset_id is required")
+        now = _utcnow()
+        created_at = str(preset.get("created_at") or now)
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO typography_presets (
+                    preset_id, name, description,
+                    tones_json, languages_json, mediums_json, surfaces_json,
+                    role_assignments_json, source, source_url,
+                    reference_image_path, confidence, verified,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(preset_id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    tones_json = excluded.tones_json,
+                    languages_json = excluded.languages_json,
+                    mediums_json = excluded.mediums_json,
+                    surfaces_json = excluded.surfaces_json,
+                    role_assignments_json = excluded.role_assignments_json,
+                    source = excluded.source,
+                    source_url = excluded.source_url,
+                    reference_image_path = excluded.reference_image_path,
+                    confidence = excluded.confidence,
+                    verified = excluded.verified,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    preset_id,
+                    str(preset.get("name") or preset_id),
+                    str(preset.get("description") or ""),
+                    json.dumps(list(preset.get("tones") or []), ensure_ascii=False),
+                    json.dumps(list(preset.get("languages") or []), ensure_ascii=False),
+                    json.dumps(list(preset.get("mediums") or []), ensure_ascii=False),
+                    json.dumps(list(preset.get("surfaces") or []), ensure_ascii=False),
+                    json.dumps(preset.get("role_assignments") or {}, ensure_ascii=False),
+                    str(preset.get("source") or "manual"),
+                    str(preset.get("source_url") or ""),
+                    str(preset.get("reference_image_path") or ""),
+                    float(preset.get("confidence", 0.7) or 0.0),
+                    1 if bool(preset.get("verified")) else 0,
+                    created_at,
+                    now,
+                ),
+            )
+            conn.commit()
+        return preset_id
+
+    def list_typography_presets(
+        self,
+        *,
+        language: Optional[str] = None,
+        medium: Optional[str] = None,
+        surface: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> list[TypographyPreset]:
+        with connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM typography_presets ORDER BY confidence DESC, name ASC"
+            ).fetchall()
+        presets = [self._to_typography_preset(row) for row in rows]
+
+        def _matches(preset: TypographyPreset) -> bool:
+            if language and language not in preset.languages:
+                return False
+            if medium and medium not in preset.mediums:
+                return False
+            if surface and surface not in preset.surfaces:
+                return False
+            if source and preset.source != source:
+                return False
+            return True
+
+        return [p for p in presets if _matches(p)]
+
+    def get_typography_preset(self, preset_id: str) -> Optional[TypographyPreset]:
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM typography_presets WHERE preset_id = ?",
+                (preset_id,),
+            ).fetchone()
+        return self._to_typography_preset(row) if row else None
+
+    def delete_typography_preset(self, preset_id: str) -> bool:
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM typography_presets WHERE preset_id = ?",
+                (preset_id,),
+            )
+            conn.commit()
+            return bool(cursor.rowcount)
+
+    def _to_typography_preset(self, row) -> TypographyPreset:
+        return TypographyPreset(
+            preset_id=row["preset_id"],
+            name=row["name"],
+            description=row["description"],
+            tones=json.loads(row["tones_json"]),
+            languages=json.loads(row["languages_json"]),
+            mediums=json.loads(row["mediums_json"]),
+            surfaces=json.loads(row["surfaces_json"]),
+            role_assignments=json.loads(row["role_assignments_json"]),
+            source=row["source"],
+            source_url=row["source_url"],
+            reference_image_path=row["reference_image_path"],
+            confidence=float(row["confidence"]),
+            verified=bool(row["verified"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

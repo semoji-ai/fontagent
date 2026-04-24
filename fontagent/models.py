@@ -90,3 +90,33 @@ class FontReferenceReview:
     status: str
     notes: list[str]
     created_at: str
+
+
+@dataclass
+class TypographyPreset:
+    """A named combination of fonts for use across title/subtitle/body roles.
+
+    Stored as a reusable "font family recipe" so downstream agents can
+    apply a cohesive typography system to a scene without re-matching
+    every region independently. Presets are seeded (curated) or learned
+    from reference material and persisted in the SQLite catalog.
+    """
+
+    preset_id: str
+    name: str
+    description: str
+    tones: list[str]
+    languages: list[str]
+    mediums: list[str]
+    surfaces: list[str]
+    # role_assignments maps a role name ("title", "subtitle", "body",
+    # "caption", ...) to {"font_id", "fallback_font_ids",
+    # "pairing_reason"}.
+    role_assignments: dict
+    source: str  # "curated" | "manual" | "learned_from_compose" | ...
+    source_url: str
+    reference_image_path: str
+    confidence: float
+    verified: bool
+    created_at: str
+    updated_at: str

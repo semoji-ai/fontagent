@@ -198,6 +198,41 @@ FontAgent 는 OCR 을 직접 수행하지 않으며, `regions` 는 호출하는 
 채워 넘기는 것을 전제로 합니다. MCP 에서도 `compose_text_layers` 도구로 같은
 입력을 받습니다.
 
+### 타이포그래피 프리셋 (폰트 패밀리 조합)
+
+자주 쓰는 title/subtitle/body 조합은 `typography_presets` 카탈로그에
+저장해두고 재사용합니다. init 시 5개 시드 (`editorial-serif-ko`,
+`modern-ui-ko`, `bilingual-neutral`, `traditional-ko`, `brand-developer-ko`)
+가 자동 설치됩니다.
+
+```bash
+# 프리셋 목록
+python3 -m fontagent.cli list-typography-presets --language ko
+
+# 톤/매체로 프리셋 추천
+python3 -m fontagent.cli recommend-typography-preset \
+    --tone editorial --tone calm --language ko --medium editorial --count 3
+
+# 프리셋 적용해서 compose
+python3 -m fontagent.cli compose-text-layers \
+    --image poster.png --regions regions.json \
+    --preset editorial-serif-ko
+
+# 새 프리셋 저장 (레퍼런스 이미지나 수동 큐레이션 결과)
+python3 -m fontagent.cli save-typography-preset \
+    --preset-id my-brand-pack --name "My Brand" \
+    --tone brand --tone warm --language ko --medium web --surface landing \
+    --role-assignments '{"title":{"font_id":"pretendard","fallback_font_ids":["suit"],"pairing_reason":""},"body":{"font_id":"suit","fallback_font_ids":[],"pairing_reason":""}}'
+```
+
+프리셋을 지정하면 각 영역의 `role` 에 해당하는 폰트가 승자로 고정됩니다.
+라이선스 제약을 통과하지 못하면 `fallback_font_ids` 를 순서대로 시도하고,
+그래도 실패하면 hybrid 매칭 결과로 되돌아갑니다. 프리셋이 골라준 폰트가
+특정 영역에 안 어울린다고 판단되면 `similar_alternatives` 에 hybrid 가
+추천한 대안이 남아있어 바로 교체 가능. MCP 에서도 `list_typography_presets`
+/ `recommend_typography_preset` / `save_typography_preset` /
+`delete_typography_preset` / `get_typography_preset` 도구로 노출됩니다.
+
 ### 한 번의 호출로 설치 + handoff 까지
 
 `--install-to` / `--handoff-output` / `--css-output` / `--remotion-output`
