@@ -296,5 +296,209 @@ class DetectorRobustnessTests(unittest.TestCase):
         self.assertEqual(len(after), 1)
 
 
+@unittest.skipUnless(DEPENDENCIES_AVAILABLE, "Pillow/fontTools/numpy not installed")
+class ComposeTextLayersTests(unittest.TestCase):
+    def test_compose_text_layers_end_to_end(self) -> None:
+        fonts = _available_fonts()
+        if len(fonts) < 2:
+            self.skipTest("need at least two TTF fonts for the index")
+
+        from fontagent.service import FontAgentService
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                '{"fonts": []}', encoding="utf-8"
+            )
+            service = FontAgentService(root)
+            service.ensure_catalog_ready()
+
+            # Build an index from the fixture fonts so compose_text_layers
+            # has something to match against.
+            from fontagent.font_identify import build_index
+            from fontagent.font_identify.index import FontSource
+
+            sources = [
+                FontSource(fid, family, path, languages=["en"])
+                for fid, family, path in fonts
+            ]
+            build_index(
+                sources,
+                index_dir=service.font_identify_index_dir,
+                language_hint="en",
+            )
+            # Register matching FontRecords so profile enrichment works.
+            for fid, family, path in fonts:
+                service.repository.upsert_many(
+                    [
+                        {
+                            "font_id": fid,
+                            "family": family,
+                            "slug": fid,
+                            "source_site": "fixture",
+                            "source_page_url": f"file://{path}",
+                            "license_id": "OFL",
+                            "license_summary": "Fixture OFL",
+                            "commercial_use_allowed": True,
+                            "video_use_allowed": True,
+                            "web_embedding_allowed": True,
+                            "redistribution_allowed": True,
+                            "languages": ["en"],
+                            "tags": ["serif"],
+                            "recommended_for": ["title"],
+                            "download_type": "manual_only",
+                            "download_url": "",
+                            "download_source": "fixture",
+                            "format": "ttf",
+                            "variable_font": False,
+                        }
+                    ]
+                )
+
+            # Render a poster-ish image and build two regions against it.
+            target_id, _, target_path = fonts[0]
+            poster = Image.new("RGB", (800, 400), color=(250, 248, 240))
+            draw = ImageDraw.Draw(poster)
+            draw.text(
+                (20, 20), "HELLO",
+                fill=(10, 10, 10),
+                font=ImageFont.truetype(str(target_path), 96),
+            )
+            draw.text(
+                (20, 200), "WORLD",
+                fill=(10, 10, 10),
+                font=ImageFont.truetype(str(target_path), 72),
+            )
+            poster_path = root / "poster.png"
+            poster.save(poster_path)
+
+            regions = [
+                {
+                    "bbox": [10, 10, 500, 140],
+                    "text": "HELLO",
+                    "role": "title",
+                    "style_hints": ["serif"],
+                    "language": "en",
+                },
+                {
+                    "bbox": [10, 190, 500, 300],
+                    "text": "WORLD",
+                    "role": "body",
+                    "style_hints": ["serif"],
+                    "language": "en",
+                },
+            ]
+
+            svg_path = root / "preview.svg"
+            result = service.compose_text_layers(
+                image_path=poster_path,
+                regions=regions,
+                similar_alternatives=2,
+                svg_output_path=svg_path,
+            )
+
+            self.assertEqual(len(result["text_layers"]), 2)
+            self.assertTrue(svg_path.exists())
+            for layer in result["text_layers"]:
+                self.assertIsNotNone(layer.get("font"))
+                font = layer["font"]
+                self.assertIn("license", font)
+                self.assertIn("source", font)
+                self.assertIn("install", font)
+                self.assertIn("match_sources", font)
+                self.assertIn("hybrid_score", font)
+                self.assertIn(layer["match_reasoning"]["winner_source"],
+                              {"identify_only", "recommend_only", "identify+recommend"})
+
+    def test_compose_text_layers_applies_license_constraints(self) -> None:
+        fonts = _available_fonts()
+        if len(fonts) < 2:
+            self.skipTest("need at least two TTF fonts")
+        from fontagent.service import FontAgentService
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "fontagent" / "seed").mkdir(parents=True, exist_ok=True)
+            (root / "fontagent" / "seed" / "fonts.json").write_text(
+                '{"fonts": []}', encoding="utf-8"
+            )
+            service = FontAgentService(root)
+            service.ensure_catalog_ready()
+
+            from fontagent.font_identify import build_index
+            from fontagent.font_identify.index import FontSource
+
+            sources = [
+                FontSource(fid, family, path, languages=["en"])
+                for fid, family, path in fonts
+            ]
+            build_index(
+                sources,
+                index_dir=service.font_identify_index_dir,
+                language_hint="en",
+            )
+            # Mark every fixture font as non-commercial so the filter has
+            # something to reject.
+            for fid, family, path in fonts:
+                service.repository.upsert_many(
+                    [
+                        {
+                            "font_id": fid,
+                            "family": family,
+                            "slug": fid,
+                            "source_site": "fixture",
+                            "source_page_url": f"file://{path}",
+                            "license_id": "restricted",
+                            "license_summary": "not for commercial use",
+                            "commercial_use_allowed": False,
+                            "video_use_allowed": False,
+                            "web_embedding_allowed": False,
+                            "redistribution_allowed": False,
+                            "languages": ["en"],
+                            "tags": ["serif"],
+                            "recommended_for": ["title"],
+                            "download_type": "manual_only",
+                            "download_url": "",
+                            "download_source": "fixture",
+                            "format": "ttf",
+                            "variable_font": False,
+                        }
+                    ]
+                )
+
+            _, _, target_path = fonts[0]
+            poster = Image.new("RGB", (600, 200), color=(250, 248, 240))
+            draw = ImageDraw.Draw(poster)
+            draw.text(
+                (20, 20), "HELLO",
+                fill=(10, 10, 10),
+                font=ImageFont.truetype(str(target_path), 80),
+            )
+            poster_path = root / "poster.png"
+            poster.save(poster_path)
+
+            regions = [
+                {
+                    "bbox": [10, 10, 400, 140],
+                    "text": "HELLO",
+                    "role": "title",
+                    "style_hints": ["serif"],
+                    "language": "en",
+                }
+            ]
+            result = service.compose_text_layers(
+                image_path=poster_path,
+                regions=regions,
+                license_constraints={"commercial_use": True},
+                similar_alternatives=2,
+            )
+            self.assertEqual(len(result["text_layers"]), 1)
+            # Every fixture font is marked non-commercial, so no font
+            # should pass the filter.
+            self.assertIsNone(result["text_layers"][0]["font"])
+            self.assertEqual(result["text_layers"][0]["similar_alternatives"], [])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

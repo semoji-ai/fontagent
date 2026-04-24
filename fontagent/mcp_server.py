@@ -266,6 +266,49 @@ class FontAgentMCPApplication:
                 },
             },
             {
+                "name": "compose_text_layers",
+                "title": "Compose Text Layers",
+                "description": "포스터/장면 이미지에 대해 호출자가 미리 OCR·영역 분할해둔 regions 배열을 입력으로 받아, 각 영역에 시각적 identify + 역할/스타일 기반 recommend 를 hybrid(RRF)로 결합해 최적 폰트를 배정합니다. 각 text layer 는 font 상세(라이선스/source/install) 와 유사 대안을 포함하고, 옵션으로 svg_preview_path 에 디버그용 SVG 를 출력합니다. OCR 은 FontAgent 에서 수행하지 않습니다 — 멀티모달 LLM 이 regions 를 생성해 넘겨주는 것이 전제.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "image_path": {"type": "string"},
+                        "regions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "bbox": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 4,
+                                        "maxItems": 4,
+                                    },
+                                    "text": {"type": "string"},
+                                    "role": {"type": "string"},
+                                    "style_hints": {"type": "array", "items": {"type": "string"}},
+                                    "tones": {"type": "array", "items": {"type": "string"}},
+                                    "language": {"type": "string"},
+                                },
+                                "required": ["bbox"],
+                            },
+                        },
+                        "similar_alternatives": {"type": "integer"},
+                        "svg_output_path": {"type": "string"},
+                        "license_constraints": {
+                            "type": "object",
+                            "properties": {
+                                "commercial_use": {"type": "boolean"},
+                                "video_use": {"type": "boolean"},
+                                "web_embedding": {"type": "boolean"},
+                                "redistribution": {"type": "boolean"},
+                            },
+                        },
+                    },
+                    "required": ["image_path", "regions"],
+                },
+            },
+            {
                 "name": "generate_typography_handoff",
                 "title": "Generate Typography Handoff",
                 "description": "디자인 에이전트로 넘길 typography handoff contract를 생성합니다.",
@@ -467,6 +510,21 @@ class FontAgentMCPApplication:
                 max_glyphs=int(arguments.get("max_glyphs", 32)),
                 similar_alternatives=int(arguments.get("similar_alternatives", 5)),
                 license_constraints=arguments.get("license_constraints"),
+            )
+        if name == "compose_text_layers":
+            image_path = arguments.get("image_path") or ""
+            if not image_path:
+                raise ValueError("image_path is required")
+            regions = arguments.get("regions")
+            if not isinstance(regions, list):
+                raise ValueError("regions must be a list")
+            svg_output = arguments.get("svg_output_path")
+            return self.service.compose_text_layers(
+                image_path=Path(image_path).expanduser(),
+                regions=regions,
+                similar_alternatives=int(arguments.get("similar_alternatives", 3)),
+                license_constraints=arguments.get("license_constraints"),
+                svg_output_path=Path(svg_output).expanduser() if svg_output else None,
             )
         if name == "generate_typography_handoff":
             return self.service.generate_typography_handoff(

@@ -156,6 +156,48 @@ python3 -m fontagent.cli identify-font \
 
 MCP에서도 동일하게 `build_glyph_index`, `identify_font_in_image` 도구로 노출됩니다.
 
+## 포스터 → 텍스트 레이어 합성
+
+멀티모달 LLM 에이전트가 OCR·영역 분할을 먼저 해서 `regions` 를 넘겨주면,
+FontAgent 가 영역마다 **identify (시각적 매칭) + recommend (역할/스타일/언어
+기반 추천)** 을 hybrid(RRF) 로 결합해 가장 맞는 폰트를 배정하고, 각 layer 를
+라이선스·설치 정보와 함께 구조화해 돌려줍니다. 옵션으로 디버그 SVG 프리뷰도
+작성합니다.
+
+```bash
+python3 -m fontagent.cli compose-text-layers \
+    --image poster.png \
+    --regions regions.json \
+    --similar-count 3 \
+    --svg-output preview.svg \
+    --commercial-use
+```
+
+`regions.json` 예:
+
+```json
+[
+  {
+    "bbox": [60, 60, 800, 200],
+    "text": "VINTAGE VIBES",
+    "role": "title",
+    "style_hints": ["serif", "display", "vintage"],
+    "language": "en"
+  },
+  {
+    "bbox": [60, 360, 500, 480],
+    "text": "봄의 시작",
+    "role": "subtitle",
+    "style_hints": ["soft", "handwriting"],
+    "language": "ko"
+  }
+]
+```
+
+FontAgent 는 OCR 을 직접 수행하지 않으며, `regions` 는 호출하는 에이전트가
+채워 넘기는 것을 전제로 합니다. MCP 에서도 `compose_text_layers` 도구로 같은
+입력을 받습니다.
+
 ## 데이터 모델
 
 핵심 필드:

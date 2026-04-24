@@ -348,6 +348,20 @@ def main() -> None:
     identify_font.add_argument("--web-embedding", action="store_true")
     identify_font.add_argument("--redistribution", action="store_true")
 
+    compose_layers = subparsers.add_parser("compose-text-layers")
+    compose_layers.add_argument("--image", required=True)
+    compose_layers.add_argument(
+        "--regions",
+        required=True,
+        help="path to JSON file or inline JSON: [{bbox, text, role, style_hints, language}]",
+    )
+    compose_layers.add_argument("--similar-count", type=int, default=3)
+    compose_layers.add_argument("--svg-output")
+    compose_layers.add_argument("--commercial-use", action="store_true")
+    compose_layers.add_argument("--video-use", action="store_true")
+    compose_layers.add_argument("--web-embedding", action="store_true")
+    compose_layers.add_argument("--redistribution", action="store_true")
+
     subparsers.add_parser("mcp")
 
     args = parser.parse_args()
@@ -767,6 +781,33 @@ def main() -> None:
                     max_glyphs=args.max_glyphs,
                     license_constraints=constraints,
                     similar_alternatives=args.similar_count,
+                )
+            )
+        elif args.command == "compose-text-layers":
+            service.ensure_catalog_ready(auto_scan_system=True)
+            regions_arg = args.regions
+            regions_source = Path(regions_arg)
+            if regions_source.exists():
+                regions_payload = json.loads(regions_source.read_text(encoding="utf-8"))
+            else:
+                regions_payload = json.loads(regions_arg)
+            if isinstance(regions_payload, dict) and "regions" in regions_payload:
+                regions_payload = regions_payload["regions"]
+            if not isinstance(regions_payload, list):
+                raise ValueError("--regions must decode to a list of region objects")
+            constraints = {
+                "commercial_use": args.commercial_use,
+                "video_use": args.video_use,
+                "web_embedding": args.web_embedding,
+                "redistribution": args.redistribution,
+            }
+            _print(
+                service.compose_text_layers(
+                    image_path=Path(args.image),
+                    regions=regions_payload,
+                    similar_alternatives=args.similar_count,
+                    license_constraints=constraints,
+                    svg_output_path=Path(args.svg_output) if args.svg_output else None,
                 )
             )
         elif args.command == "serve":

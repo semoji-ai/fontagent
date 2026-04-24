@@ -3429,3 +3429,340 @@ class FontAgentService:
             if len(alternatives) >= limit:
                 break
         return alternatives
+
+    # ----- Text-layer composition (poster → per-region font layers) -----
+
+    def compose_text_layers(
+        self,
+        *,
+        image_path: Path,
+        regions: list[dict],
+        license_constraints: dict | None = None,
+        similar_alternatives: int = 3,
+        svg_output_path: Path | None = None,
+    ) -> dict:
+        """Match a font to each pre-identified text region in an image.
+
+        `regions` must be provided by the caller (typically a multimodal
+        LLM agent that already OCR'd the poster). Each entry supplies the
+        bbox, the text content, and optional hints (role, style_hints,
+        language) that drive the font recommendation step. FontAgent does
+        not run OCR itself — the LLM caller owns that responsibility.
+        """
+        from PIL import Image  # noqa: WPS433
+
+        from .font_identify import identify_from_image, load_index  # noqa: WPS433
+
+        index_dir = self.font_identify_index_dir
+        if not (index_dir / "manifest.json").exists():
+            raise RuntimeError(
+                f"font identify index not found at {index_dir}; run "
+                f"`fontagent build-glyph-index` first",
+            )
+        index = load_index(index_dir)
+        normalized_constraints = self._normalize_license_constraints(license_constraints)
+
+        source = Image.open(Path(image_path)).convert("RGB")
+        text_layers: list[dict] = []
+
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            for region_index, raw_region in enumerate(regions):
+                region = self._coerce_region_spec(raw_region)
+                if region is None:
+                    continue
+                layer = self._build_text_layer_for_region(
+                    region_index=region_index,
+                    region=region,
+                    source_image=source,
+                    tmp_dir=tmp_dir,
+                    index=index,
+                    license_constraints=normalized_constraints,
+                    similar_alternatives=similar_alternatives,
+                    identify_from_image=identify_from_image,
+                )
+                text_layers.append(layer)
+
+        payload: dict = {
+            "image_path": str(Path(image_path)),
+            "image_size": {"width": source.size[0], "height": source.size[1]},
+            "index_dir": str(index_dir),
+            "index_fonts": len(index.manifest.get("fonts", [])),
+            "license_constraints_applied": normalized_constraints,
+            "text_layers": text_layers,
+        }
+
+        if svg_output_path is not None:
+            svg_markup = self._render_text_layers_svg(
+                size=source.size,
+                text_layers=text_layers,
+            )
+            output_path = Path(svg_output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(svg_markup, encoding="utf-8")
+            payload["svg_preview_path"] = str(output_path)
+
+        return payload
+
+    def _coerce_region_spec(self, raw: dict) -> dict | None:
+        bbox = raw.get("bbox") if isinstance(raw, dict) else None
+        if not (isinstance(bbox, (list, tuple)) and len(bbox) == 4):
+            return None
+        try:
+            x0, y0, x1, y1 = (int(v) for v in bbox)
+        except (TypeError, ValueError):
+            return None
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return {
+            "bbox": (x0, y0, x1, y1),
+            "text": str(raw.get("text", "") or ""),
+            "role": str(raw.get("role", "") or ""),
+            "style_hints": [str(item) for item in (raw.get("style_hints") or []) if str(item).strip()],
+            "language": str(raw.get("language", "") or ""),
+            "tones": [str(item) for item in (raw.get("tones") or []) if str(item).strip()],
+        }
+
+    def _build_text_layer_for_region(
+        self,
+        *,
+        region_index: int,
+        region: dict,
+        source_image,  # noqa: ANN001
+        tmp_dir: Path,
+        index,  # noqa: ANN001
+        license_constraints: dict | None,
+        similar_alternatives: int,
+        identify_from_image,  # noqa: ANN001
+    ) -> dict:
+        bbox = region["bbox"]
+        text = region["text"]
+        role = region["role"]
+        style_hints = region["style_hints"]
+        language = region["language"] or "ko"
+        tones = region["tones"] or style_hints
+
+        crop = source_image.crop(bbox)
+        crop_path = tmp_dir / f"region_{region_index:03d}.png"
+        crop.save(crop_path)
+
+        identify_matches: list[dict] = []
+        try:
+            identify_result = identify_from_image(
+                image_path=crop_path,
+                index=index,
+                top_k=8,
+                max_glyphs=16,
+                char_hints=list(text) if text else None,
+            )
+            identify_matches = [
+                self._enrich_identify_match(match, index, rank=rank)
+                for rank, match in enumerate(identify_result.top_matches, start=1)
+            ]
+        except Exception as exc:  # noqa: BLE001
+            identify_matches = []
+            identify_error = str(exc)
+        else:
+            identify_error = ""
+
+        recommend_matches: list[dict] = []
+        recommend_error = ""
+        task_text = self._build_recommend_task(role=role, style_hints=style_hints, text=text)
+        if task_text:
+            try:
+                recommend_matches = self.recommend(
+                    task=task_text,
+                    language=language,
+                    commercial_only=False,
+                    count=8,
+                    detail_level="compact",
+                )
+            except Exception as exc:  # noqa: BLE001
+                recommend_error = str(exc)
+                recommend_matches = []
+
+        ranked = self._hybrid_rank_fonts(
+            identify_matches=identify_matches,
+            recommend_matches=recommend_matches,
+        )
+        ranked = [
+            entry for entry in ranked
+            if self._font_id_satisfies_constraints(entry["font_id"], license_constraints)
+        ]
+
+        winner = ranked[0] if ranked else None
+        alternatives = ranked[1 : 1 + similar_alternatives]
+
+        return {
+            "region_index": region_index,
+            "bbox": list(bbox),
+            "text": text,
+            "role": role,
+            "language": language,
+            "style_hints": style_hints,
+            "tones": tones,
+            "font": winner,
+            "similar_alternatives": alternatives,
+            "match_reasoning": {
+                "identify_top": identify_matches[0]["font_id"] if identify_matches else None,
+                "identify_error": identify_error,
+                "recommend_task": task_text,
+                "recommend_top": recommend_matches[0]["font_id"] if recommend_matches else None,
+                "recommend_error": recommend_error,
+                "winner_source": self._describe_winner_source(winner),
+                "identify_candidates_considered": len(identify_matches),
+                "recommend_candidates_considered": len(recommend_matches),
+            },
+        }
+
+    def _build_recommend_task(
+        self,
+        *,
+        role: str,
+        style_hints: list[str],
+        text: str,
+    ) -> str:
+        tokens: list[str] = []
+        if role:
+            tokens.append(role)
+        tokens.extend(style_hints)
+        if text:
+            # Use a short excerpt so the recommend scorer can still match
+            # keyword tokens without the whole poster copy derailing it.
+            excerpt = text.strip().split("\n")[0][:40]
+            if excerpt:
+                tokens.append(excerpt)
+        return " ".join(token for token in tokens if token)
+
+    def _hybrid_rank_fonts(
+        self,
+        *,
+        identify_matches: list[dict],
+        recommend_matches: list[dict],
+        rrf_k: int = 60,
+    ) -> list[dict]:
+        """Reciprocal-rank-fusion merge of identify and recommend results.
+
+        RRF rewards fonts that land near the top of either list and
+        especially fonts that appear in both. It avoids having to
+        normalize the two score scales (identify is z-score sum,
+        recommend is a keyword-match count) which don't share units.
+        """
+        scores: dict[str, float] = {}
+        sources: dict[str, dict] = {}
+        best_blob: dict[str, dict] = {}
+
+        for rank, match in enumerate(identify_matches, start=1):
+            font_id = match.get("font_id", "")
+            if not font_id:
+                continue
+            scores[font_id] = scores.get(font_id, 0.0) + 1.0 / (rrf_k + rank)
+            info = sources.setdefault(font_id, {})
+            info["identify_rank"] = rank
+            info["identify_score"] = match.get("score")
+            info["identify_glyph_hits"] = match.get("glyph_hits")
+            best_blob.setdefault(font_id, match)
+
+        for rank, match in enumerate(recommend_matches, start=1):
+            font_id = match.get("font_id", "")
+            if not font_id:
+                continue
+            scores[font_id] = scores.get(font_id, 0.0) + 1.0 / (rrf_k + rank)
+            info = sources.setdefault(font_id, {})
+            info["recommend_rank"] = rank
+            info["recommend_score"] = match.get("score")
+            info["recommend_reasons"] = list(match.get("why", []))[:4] if isinstance(match.get("why"), list) else []
+            best_blob.setdefault(font_id, match)
+
+        ranked = sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
+        results: list[dict] = []
+        for font_id, rrf_score in ranked:
+            profile = self._build_font_profile(font_id)
+            if profile is None:
+                continue
+            profile["hybrid_score"] = round(float(rrf_score), 6)
+            profile["match_sources"] = sources.get(font_id, {})
+            results.append(profile)
+        return results
+
+    def _describe_winner_source(self, winner: dict | None) -> str:
+        if not winner:
+            return "no_winner"
+        sources = winner.get("match_sources") or {}
+        has_identify = "identify_rank" in sources
+        has_recommend = "recommend_rank" in sources
+        if has_identify and has_recommend:
+            return "identify+recommend"
+        if has_identify:
+            return "identify_only"
+        if has_recommend:
+            return "recommend_only"
+        return "unknown"
+
+    def _build_font_profile(self, font_id: str) -> dict | None:
+        record = self.repository.get_font(font_id)
+        if record is None:
+            return None
+        return {
+            "font_id": font_id,
+            "family": record.family,
+            "languages": list(record.languages),
+            "tags": list(record.tags),
+            **self._build_font_detail_block(record),
+        }
+
+    def _font_id_satisfies_constraints(self, font_id: str, constraints: dict | None) -> bool:
+        if not constraints:
+            return True
+        record = self.repository.get_font(font_id)
+        if record is None:
+            return False
+        return self._license_record_satisfies(record, constraints)
+
+    def _render_text_layers_svg(
+        self,
+        *,
+        size: tuple[int, int],
+        text_layers: list[dict],
+    ) -> str:
+        width, height = size
+        from html import escape  # noqa: WPS433
+
+        parts = [
+            (
+                f'<svg xmlns="http://www.w3.org/2000/svg" '
+                f'width="{width}" height="{height}" '
+                f'viewBox="0 0 {width} {height}">'
+            ),
+            '<rect width="100%" height="100%" fill="#fafaf7"/>',
+        ]
+        for layer in text_layers:
+            bbox = layer.get("bbox") or [0, 0, 0, 0]
+            x0, y0, x1, y1 = bbox
+            box_width = max(1, x1 - x0)
+            box_height = max(1, y1 - y0)
+            font = layer.get("font") or {}
+            family = escape(str(font.get("family", "?")))
+            font_id = escape(str(font.get("font_id", "?")))
+            text = escape(str(layer.get("text", "") or ""))
+            role = escape(str(layer.get("role", "")))
+            parts.append(
+                f'<rect x="{x0}" y="{y0}" width="{box_width}" height="{box_height}" '
+                'fill="none" stroke="#c6bca7" stroke-dasharray="4 4"/>'
+            )
+            label_y = max(y0 - 8, 14)
+            parts.append(
+                f'<text x="{x0}" y="{label_y}" '
+                'font-family="Menlo, monospace" font-size="12" fill="#7c6d54">'
+                f'{role or "region"} · {family} ({font_id})</text>'
+            )
+            if text:
+                inner_y = y0 + min(box_height - 6, int(box_height * 0.7))
+                parts.append(
+                    f'<text x="{x0 + 6}" y="{inner_y}" '
+                    f'font-family="{family}, sans-serif" font-size="{max(12, int(box_height * 0.45))}" '
+                    'fill="#17120e">'
+                    f'{text}</text>'
+                )
+        parts.append("</svg>")
+        return "\n".join(parts)
