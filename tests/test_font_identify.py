@@ -60,6 +60,13 @@ def _available_korean_fonts() -> list[tuple[str, str, Path]]:
 
 @unittest.skipUnless(DEPENDENCIES_AVAILABLE, "Pillow/fontTools/numpy not installed")
 class FingerprintTests(unittest.TestCase):
+    def test_fingerprint_dim_is_stable(self) -> None:
+        # Pin the contract so a change to block layout has to be made
+        # deliberately and accompanied by an index rebuild.
+        from fontagent.font_identify import FINGERPRINT_DIM
+
+        self.assertEqual(FINGERPRINT_DIM, 906)
+
     def test_self_similarity_is_one(self) -> None:
         fonts = _available_fonts()
         if not fonts:

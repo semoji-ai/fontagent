@@ -156,15 +156,15 @@ class FontFingerprintIndex:
                 return IndexedFont(**entry)
         return None
 
-    def query_for_char(
-        self,
-        query_fp: np.ndarray,
-        char: str,
-        *,
-        top_k: int = 5,
-    ) -> list[tuple[str, float]]:
-        """Match against every font that indexed this particular character."""
-        scored: list[tuple[str, float]] = []
+    def query_for_char_all(self, query_fp: np.ndarray, char: str) -> dict[str, float]:
+        """Full per-font similarity distribution for a single character.
+
+        Returns an empty dict when no font in the index covers `char`.
+        The distribution over all indexed fonts is what the matcher
+        needs to compute a z-score and reward fonts that are notably
+        more similar than the per-glyph average.
+        """
+        scored: dict[str, float] = {}
         for entry in self.manifest.get("fonts", []):
             chars: list[str] = entry.get("characters", [])
             if char not in chars:
@@ -173,8 +173,37 @@ class FontFingerprintIndex:
             if matrix is None:
                 continue
             row = matrix[chars.index(char)]
-            scored.append((entry["font_id"], float(np.dot(row, query_fp))))
-        scored.sort(key=lambda item: item[1], reverse=True)
+            scored[entry["font_id"]] = float(np.dot(row, query_fp))
+        return scored
+
+    def query_unknown_char_all(self, query_fp: np.ndarray) -> dict[str, tuple[float, str]]:
+        """Full per-font best-match distribution without a character hint."""
+        scored: dict[str, tuple[float, str]] = {}
+        for entry in self.manifest.get("fonts", []):
+            matrix = self.vectors.get(entry["font_id"])
+            if matrix is None or matrix.size == 0:
+                continue
+            scores = cosine_similarity_matrix(query_fp, matrix)
+            best_idx = int(np.argmax(scores))
+            scored[entry["font_id"]] = (
+                float(scores[best_idx]),
+                entry["characters"][best_idx],
+            )
+        return scored
+
+    def query_for_char(
+        self,
+        query_fp: np.ndarray,
+        char: str,
+        *,
+        top_k: int = 5,
+    ) -> list[tuple[str, float]]:
+        """Match against every font that indexed this particular character."""
+        scored = sorted(
+            self.query_for_char_all(query_fp, char).items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
         return scored[:top_k]
 
     def query_unknown_char(
@@ -184,22 +213,13 @@ class FontFingerprintIndex:
         top_k: int = 5,
     ) -> list[tuple[str, float, str]]:
         """Match against every stored fingerprint; return (font_id, score, char)."""
-        best: list[tuple[str, float, str]] = []
-        for entry in self.manifest.get("fonts", []):
-            matrix = self.vectors.get(entry["font_id"])
-            if matrix is None or matrix.size == 0:
-                continue
-            scores = cosine_similarity_matrix(query_fp, matrix)
-            best_idx = int(np.argmax(scores))
-            best.append(
-                (
-                    entry["font_id"],
-                    float(scores[best_idx]),
-                    entry["characters"][best_idx],
-                )
-            )
-        best.sort(key=lambda item: item[1], reverse=True)
-        return best[:top_k]
+        all_scores = self.query_unknown_char_all(query_fp)
+        ranked = sorted(
+            ((fid, score, char) for fid, (score, char) in all_scores.items()),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        return ranked[:top_k]
 
 
 def load_index(index_dir: Path) -> FontFingerprintIndex:

@@ -40,19 +40,36 @@ def _prepare_query(bitmap: np.ndarray, normalized_size: int) -> np.ndarray:
     return compute_fingerprint(normalized)
 
 
-def _aggregate_votes(
-    per_glyph_results: Iterable[list[tuple[str, float]]],
+def _zscore_aggregate(
+    per_glyph_full_scores: Iterable[dict[str, float]],
     *,
     top_k: int,
 ) -> list[dict]:
-    scores: dict[str, float] = {}
+    """Sum per-glyph z-scores across glyphs and rank fonts.
+
+    For each glyph we convert the full per-font similarity distribution
+    into z-scores, so a font that is `1σ` above the mean contributes
+    `+1` regardless of the absolute similarity scale. This rewards
+    fonts that are notably more similar than the crowd on a given
+    glyph, which is what separates the correct font from a generic
+    "roughly looks like ink" baseline.
+    """
+    accumulated: dict[str, float] = {}
     hits: dict[str, int] = {}
-    for glyph_scores in per_glyph_results:
-        for font_id, score in glyph_scores:
-            scores[font_id] = scores.get(font_id, 0.0) + max(0.0, score)
+    for glyph_scores in per_glyph_full_scores:
+        if not glyph_scores:
+            continue
+        values = np.fromiter(glyph_scores.values(), dtype=np.float32)
+        if values.size == 0:
+            continue
+        mean = float(values.mean())
+        std = float(values.std()) or 1e-6
+        for font_id, score in glyph_scores.items():
+            z = (float(score) - mean) / std
+            accumulated[font_id] = accumulated.get(font_id, 0.0) + z
             hits[font_id] = hits.get(font_id, 0) + 1
     ranked = sorted(
-        scores.items(),
+        accumulated.items(),
         key=lambda item: (item[1], hits.get(item[0], 0)),
         reverse=True,
     )
@@ -72,21 +89,20 @@ def identify_from_glyph(
     """Identify a font from a single glyph bitmap."""
     query_fp = _prepare_query(glyph, index.normalized_size)
     if char_hint:
-        matches = index.query_for_char(query_fp, char_hint, top_k=top_k)
-        used_hint = bool(matches)
-        if used_hint:
+        scores = index.query_for_char_all(query_fp, char_hint)
+        if scores:
+            aggregated = _zscore_aggregate([scores], top_k=top_k)
             return IdentificationResult(
-                top_matches=[
-                    {"font_id": font_id, "score": round(score, 6), "glyph_hits": 1}
-                    for font_id, score in matches
-                ],
+                top_matches=aggregated,
                 per_glyph=[
                     {
                         "bbox": None,
                         "char_hint": char_hint,
                         "candidates": [
                             {"font_id": font_id, "score": round(score, 6)}
-                            for font_id, score in matches
+                            for font_id, score in sorted(
+                                scores.items(), key=lambda p: p[1], reverse=True
+                            )[:PER_GLYPH_CANDIDATES]
                         ],
                     }
                 ],
@@ -95,24 +111,28 @@ def identify_from_glyph(
                 used_character_hints=True,
             )
 
-    raw = index.query_unknown_char(query_fp, top_k=top_k)
+    raw = index.query_unknown_char_all(query_fp)
+    score_only = {font_id: score for font_id, (score, _) in raw.items()}
+    aggregated = _zscore_aggregate([score_only], top_k=top_k)
+    # Attach matched_char for readability.
+    for match in aggregated:
+        if match["font_id"] in raw:
+            match["matched_char"] = raw[match["font_id"]][1]
     return IdentificationResult(
-        top_matches=[
-            {
-                "font_id": font_id,
-                "score": round(score, 6),
-                "matched_char": matched_char,
-                "glyph_hits": 1,
-            }
-            for font_id, score, matched_char in raw
-        ],
+        top_matches=aggregated,
         per_glyph=[
             {
                 "bbox": None,
                 "char_hint": None,
                 "candidates": [
-                    {"font_id": font_id, "score": round(score, 6), "matched_char": ch}
-                    for font_id, score, ch in raw
+                    {
+                        "font_id": font_id,
+                        "score": round(score, 6),
+                        "matched_char": ch,
+                    }
+                    for font_id, (score, ch) in sorted(
+                        raw.items(), key=lambda p: p[1][0], reverse=True
+                    )[:PER_GLYPH_CANDIDATES]
                 ],
             }
         ],
@@ -147,7 +167,7 @@ def identify_from_image(
         )
 
     per_glyph_report: list[dict] = []
-    per_glyph_votes: list[list[tuple[str, float]]] = []
+    per_glyph_full_scores: list[dict[str, float]] = []
     used_hints = False
 
     for idx, crop in enumerate(crops):
@@ -156,35 +176,39 @@ def identify_from_image(
             hint = char_hints[idx]
         query_fp = _prepare_query(crop.bitmap, index.normalized_size)
         if hint:
-            scored = index.query_for_char(query_fp, hint, top_k=PER_GLYPH_CANDIDATES)
+            scored = index.query_for_char_all(query_fp, hint)
             if scored:
                 used_hints = True
+                ranked = sorted(scored.items(), key=lambda p: p[1], reverse=True)
                 per_glyph_report.append(
                     {
                         "bbox": list(crop.bbox),
                         "char_hint": hint,
                         "candidates": [
                             {"font_id": font_id, "score": round(score, 6)}
-                            for font_id, score in scored
+                            for font_id, score in ranked[:PER_GLYPH_CANDIDATES]
                         ],
                     }
                 )
-                per_glyph_votes.append(scored)
+                per_glyph_full_scores.append(scored)
                 continue
-        raw = index.query_unknown_char(query_fp, top_k=PER_GLYPH_CANDIDATES)
+        raw = index.query_unknown_char_all(query_fp)
+        ranked = sorted(raw.items(), key=lambda p: p[1][0], reverse=True)
         per_glyph_report.append(
             {
                 "bbox": list(crop.bbox),
                 "char_hint": hint,
                 "candidates": [
                     {"font_id": font_id, "score": round(score, 6), "matched_char": ch}
-                    for font_id, score, ch in raw
+                    for font_id, (score, ch) in ranked[:PER_GLYPH_CANDIDATES]
                 ],
             }
         )
-        per_glyph_votes.append([(font_id, score) for font_id, score, _ in raw])
+        per_glyph_full_scores.append(
+            {font_id: score for font_id, (score, _) in raw.items()}
+        )
 
-    top_matches = _aggregate_votes(per_glyph_votes, top_k=top_k)
+    top_matches = _zscore_aggregate(per_glyph_full_scores, top_k=top_k)
     return IdentificationResult(
         top_matches=top_matches,
         per_glyph=per_glyph_report,

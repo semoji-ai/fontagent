@@ -210,19 +210,86 @@ def _dilate(mask: np.ndarray, radius: int) -> np.ndarray:
     return output
 
 
+def _estimate_stroke_half_width(mask: np.ndarray) -> float:
+    """Quick stroke-half-width estimate via a few erosion iterations.
+
+    We don't need the full distance transform here — just "roughly how
+    many pixels does it take to eat the thinnest strokes away". A tiny
+    loop (max 6 iterations) is enough to distinguish hairlines (stop
+    after 1 round) from heavy display weights (survive 5+ rounds).
+    """
+    ink = (mask > 0).astype(np.uint8)
+    if not ink.any():
+        return 0.0
+    total = int(ink.sum())
+    weighted = 0.0
+    surviving = ink
+    for step in range(1, 7):
+        left = np.zeros_like(surviving)
+        right = np.zeros_like(surviving)
+        up = np.zeros_like(surviving)
+        down = np.zeros_like(surviving)
+        left[:, 1:] = surviving[:, :-1]
+        right[:, :-1] = surviving[:, 1:]
+        up[1:, :] = surviving[:-1, :]
+        down[:-1, :] = surviving[1:, :]
+        surviving = surviving & left & right & up & down
+        weighted += float(surviving.sum())
+        if not surviving.any():
+            break
+    # `weighted / total` roughly equals mean half-width in pixels.
+    return weighted / max(1, total)
+
+
+def _adaptive_dilation_radius(mask: np.ndarray) -> int:
+    half_width = _estimate_stroke_half_width(mask)
+    if half_width >= 3.0:
+        return 1
+    if half_width >= 1.5:
+        return 2
+    return 3
+
+
+def _drop_fragment_boxes(
+    boxes: list[tuple[int, int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    """Remove boxes that are far smaller than their peers.
+
+    When handwriting fonts survive detection but the syllable merger
+    fails to pull every fragment back together, the leftovers are
+    tiny stubs that add noise to the ensemble vote. Keep only boxes
+    whose area reaches 35% of the median box area.
+    """
+    if len(boxes) <= 2:
+        return boxes
+    areas = sorted((box[2] - box[0]) * (box[3] - box[1]) for box in boxes)
+    median_area = areas[len(areas) // 2]
+    threshold = max(1, int(median_area * 0.35))
+    kept = [
+        box for box in boxes
+        if (box[2] - box[0]) * (box[3] - box[1]) >= threshold
+    ]
+    # Never drop everything; fall back to the original set if the
+    # filter accidentally removes every component.
+    return kept if kept else boxes
+
+
 def extract_glyph_crops(
     image_path: Path | str,
     *,
     max_glyphs: int = 32,
-    dilation_radius: int = 2,
+    dilation_radius: int | None = None,
 ) -> list[GlyphCrop]:
     """Return glyph crops detected in the image, ordered left-to-right."""
     image = Image.open(image_path).convert("L")
     array = np.asarray(image, dtype=np.uint8)
     mask = _auto_threshold(array)
+    if dilation_radius is None:
+        dilation_radius = _adaptive_dilation_radius(mask)
     dilated = _dilate(mask, dilation_radius)
     boxes = _connected_components(dilated)
     boxes = _group_into_syllables(boxes)
+    boxes = _drop_fragment_boxes(boxes)
 
     crops: list[GlyphCrop] = []
     for bbox in boxes[:max_glyphs]:

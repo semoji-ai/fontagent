@@ -1,12 +1,14 @@
 """Turn a normalized glyph bitmap into a fixed-length fingerprint vector.
 
-The fingerprint combines three cheap features that together are more
+The fingerprint combines four cheap features that together are more
 discriminative than pixels alone:
 
 1. Downsampled pixel intensity (shape of the ink).
 2. Gradient-orientation histogram per cell (captures stroke direction
    — e.g., sans vs. serif).
 3. Ink density per cell (robust to small rendering differences).
+4. Stroke-width histogram (weight signature — separates thin
+   handwriting from heavy display from regular text).
 
 Each block is L2-normalized, concatenated, and the whole vector is
 L2-normalized a final time so cosine similarity is a well-defined
@@ -22,12 +24,14 @@ PIXEL_GRID = 16
 HOG_GRID = 8
 HOG_BINS = 9
 ZONE_GRID = 8
+STROKE_BINS = 10
 
 _PIXEL_DIM = PIXEL_GRID * PIXEL_GRID
 _HOG_DIM = HOG_GRID * HOG_GRID * HOG_BINS
 _ZONE_DIM = ZONE_GRID * ZONE_GRID
+_STROKE_DIM = STROKE_BINS
 
-FINGERPRINT_DIM = _PIXEL_DIM + _HOG_DIM + _ZONE_DIM
+FINGERPRINT_DIM = _PIXEL_DIM + _HOG_DIM + _ZONE_DIM + _STROKE_DIM
 
 
 def _l2_normalize(vec: np.ndarray) -> np.ndarray:
@@ -85,6 +89,57 @@ def _ink_density(bitmap: np.ndarray) -> np.ndarray:
     return _downsample((bitmap > 96).astype(np.uint8) * 255, ZONE_GRID).reshape(-1)
 
 
+def _distance_transform(ink: np.ndarray) -> np.ndarray:
+    """L∞ distance from each ink pixel to the nearest non-ink pixel.
+
+    Iterative 4-connected erosion; pixels that survive the k-th erosion
+    are at least k pixels away from any background. Implemented with
+    numpy array shifts so it stays fast even at 64x64.
+    """
+    surviving = ink.astype(np.uint8)
+    height, width = surviving.shape
+    result = np.zeros(surviving.shape, dtype=np.int32)
+    step = 1
+    max_steps = max(height, width)
+    while surviving.any() and step <= max_steps:
+        result[surviving > 0] = step
+        left = np.zeros_like(surviving)
+        right = np.zeros_like(surviving)
+        up = np.zeros_like(surviving)
+        down = np.zeros_like(surviving)
+        left[:, 1:] = surviving[:, :-1]
+        right[:, :-1] = surviving[:, 1:]
+        up[1:, :] = surviving[:-1, :]
+        down[:-1, :] = surviving[1:, :]
+        surviving = surviving & left & right & up & down
+        step += 1
+    return result
+
+
+def _stroke_width_histogram(bitmap: np.ndarray) -> np.ndarray:
+    """Histogram of per-pixel stroke half-widths, normalized by the em.
+
+    A heavy display font (Black Han Sans) piles every ink pixel into
+    the high-width bins; a thin handwriting font (Gaegu) piles them
+    into the low bins; a regular Gothic lands in the middle. This is
+    the feature that breaks ties like Hahmlet-serif vs. Noto-Sans-KR
+    where ink shape and orientation alone look near-identical.
+    """
+    ink = (bitmap > 96).astype(np.uint8)
+    if ink.sum() == 0:
+        return np.zeros(STROKE_BINS, dtype=np.float32)
+    distances = _distance_transform(ink)
+    em = float(max(bitmap.shape))
+    normalized = distances[ink > 0].astype(np.float32) / em
+    # Half-widths past ~0.35 em are vanishingly rare; the upper bound
+    # keeps bins packed around the informative range.
+    hist, _ = np.histogram(normalized, bins=STROKE_BINS, range=(0.0, 0.35))
+    total = float(hist.sum())
+    if total <= 0:
+        return np.zeros(STROKE_BINS, dtype=np.float32)
+    return (hist.astype(np.float32) / total)
+
+
 def compute_fingerprint(bitmap: np.ndarray) -> np.ndarray:
     """Return an L2-normalized float32 fingerprint of shape (FINGERPRINT_DIM,)."""
     if bitmap.ndim != 2:
@@ -93,7 +148,8 @@ def compute_fingerprint(bitmap: np.ndarray) -> np.ndarray:
     pixel_block = _l2_normalize(_downsample(bitmap, PIXEL_GRID).reshape(-1))
     hog_block = _l2_normalize(_gradient_orientation_histogram(bitmap))
     zone_block = _l2_normalize(_ink_density(bitmap))
-    combined = np.concatenate([pixel_block, hog_block, zone_block])
+    stroke_block = _l2_normalize(_stroke_width_histogram(bitmap))
+    combined = np.concatenate([pixel_block, hog_block, zone_block, stroke_block])
     return _l2_normalize(combined)
 
 
