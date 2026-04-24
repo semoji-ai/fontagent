@@ -3992,6 +3992,35 @@ class FontAgentService:
             best_blob.setdefault(font_id, match)
 
         ranked = sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
+        # Style-hint alignment: boost fonts whose tags overlap with the
+        # caller's style_hints, penalize ones that don't share any tag
+        # when hints are provided. This recovers from cases where the
+        # visual identify channel literally cannot see the right font
+        # (e.g., the rendered crop is .notdef squares because a Korean
+        # display face doesn't cover Latin), and the content-aware
+        # recommend channel is our only reliable source.
+        style_tag_set = {
+            str(hint).strip().lower()
+            for hint in (style_hints or [])
+            if str(hint).strip()
+        }
+        if style_tag_set:
+            aligned_ranked: list[tuple[str, float]] = []
+            for font_id, score in ranked:
+                profile = self._build_font_profile(font_id)
+                if profile is None:
+                    aligned_ranked.append((font_id, score))
+                    continue
+                font_tags = {str(tag).lower() for tag in profile.get("tags", [])}
+                overlap = len(style_tag_set & font_tags)
+                if overlap > 0:
+                    aligned_score = score * (1.0 + 0.15 * overlap)
+                else:
+                    aligned_score = score * 0.7
+                aligned_ranked.append((font_id, aligned_score))
+            aligned_ranked.sort(key=lambda pair: pair[1], reverse=True)
+            ranked = aligned_ranked
+
         results: list[dict] = []
         for font_id, rrf_score in ranked:
             profile = self._build_font_profile(font_id)

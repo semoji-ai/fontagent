@@ -68,6 +68,7 @@ def _zscore_aggregate(
     per_glyph_full_scores: Iterable[dict[str, float]],
     *,
     top_k: int,
+    per_glyph_weights: Iterable[float] | None = None,
 ) -> list[dict]:
     """Sum per-glyph z-scores across glyphs and rank fonts.
 
@@ -77,20 +78,28 @@ def _zscore_aggregate(
     fonts that are notably more similar than the crowd on a given
     glyph, which is what separates the correct font from a generic
     "roughly looks like ink" baseline.
+
+    `per_glyph_weights` lets callers upweight visually discriminative
+    characters ("g", "Q", "한") and downweight near-uniform ones
+    ("I", "l", "ㅡ"). Weights default to 1.0 when omitted.
     """
     accumulated: dict[str, float] = {}
     hits: dict[str, int] = {}
-    for glyph_scores in per_glyph_full_scores:
+    weights_list = list(per_glyph_weights) if per_glyph_weights is not None else None
+    for idx, glyph_scores in enumerate(per_glyph_full_scores):
         if not glyph_scores:
             continue
         values = np.fromiter(glyph_scores.values(), dtype=np.float32)
         if values.size == 0:
             continue
+        weight = 1.0
+        if weights_list is not None and idx < len(weights_list):
+            weight = float(weights_list[idx])
         mean = float(values.mean())
         std = float(values.std()) or 1e-6
         for font_id, score in glyph_scores.items():
             z = (float(score) - mean) / std
-            accumulated[font_id] = accumulated.get(font_id, 0.0) + z
+            accumulated[font_id] = accumulated.get(font_id, 0.0) + weight * z
             hits[font_id] = hits.get(font_id, 0) + 1
     ranked = sorted(
         accumulated.items(),
@@ -194,6 +203,7 @@ def identify_from_image(
 
     per_glyph_report: list[dict] = []
     per_glyph_full_scores: list[dict[str, float]] = []
+    per_glyph_weights: list[float] = []
     used_hints = False
 
     for idx, crop in enumerate(crops):
@@ -217,6 +227,7 @@ def identify_from_image(
                     }
                 )
                 per_glyph_full_scores.append(scored)
+                per_glyph_weights.append(index.weight_for_char(hint))
                 continue
         raw = index.query_unknown_char_all(query_fp)
         ranked = sorted(raw.items(), key=lambda p: p[1][0], reverse=True)
@@ -233,8 +244,13 @@ def identify_from_image(
         per_glyph_full_scores.append(
             {font_id: score for font_id, (score, _) in raw.items()}
         )
+        per_glyph_weights.append(1.0)
 
-    top_matches = _zscore_aggregate(per_glyph_full_scores, top_k=top_k)
+    top_matches = _zscore_aggregate(
+        per_glyph_full_scores,
+        top_k=top_k,
+        per_glyph_weights=per_glyph_weights,
+    )
     return IdentificationResult(
         top_matches=top_matches,
         per_glyph=per_glyph_report,

@@ -113,6 +113,7 @@ def build_index(
             )
         )
 
+    character_variance = _character_variance_weights(indexed, char_list, index_dir)
     manifest = {
         "version": 1,
         "fingerprint_dim": FINGERPRINT_DIM,
@@ -121,6 +122,7 @@ def build_index(
         "render_size": render_size,
         "character_set": char_list,
         "language_hint": language_hint or "",
+        "character_weights": character_variance,
         "fonts": [entry.__dict__ for entry in indexed],
     }
     (index_dir / MANIFEST_NAME).write_text(
@@ -155,6 +157,14 @@ class FontFingerprintIndex:
     @property
     def fonts(self) -> list[IndexedFont]:
         return [IndexedFont(**entry) for entry in self.manifest.get("fonts", [])]
+
+    @property
+    def character_weights(self) -> dict[str, float]:
+        return dict(self.manifest.get("character_weights", {}))
+
+    def weight_for_char(self, char: str) -> float:
+        weights = self.manifest.get("character_weights") or {}
+        return float(weights.get(char, 1.0))
 
     def font_entry(self, font_id: str) -> Optional[IndexedFont]:
         for entry in self.manifest.get("fonts", []):
@@ -226,6 +236,54 @@ class FontFingerprintIndex:
             reverse=True,
         )
         return ranked[:top_k]
+
+
+def _character_variance_weights(
+    indexed: list[IndexedFont],
+    char_list: list[str],
+    index_dir: Path,
+) -> dict[str, float]:
+    """A discriminativeness score in [0.5, 2.0] per indexed character.
+
+    For each character, we measure how much the stored fingerprints for
+    that character vary across fonts — computed as the mean pairwise
+    cosine distance. Characters that look similar across many fonts
+    (like ".", "I", "l", "ㅡ") produce weak votes in matching; ones
+    that vary wildly ("g", "Q", "R", "한", "꽃") cast strong votes. We
+    persist these weights so the matcher can weight per-glyph
+    contributions during hybrid ranking without re-scanning the index.
+    """
+    if not indexed:
+        return {char: 1.0 for char in char_list}
+
+    # Build per-char matrix of fingerprints across fonts that cover it.
+    char_fingerprints: dict[str, list[np.ndarray]] = {char: [] for char in char_list}
+    for entry in indexed:
+        path = _vectors_path(index_dir, entry.font_id)
+        if not path.exists():
+            continue
+        matrix = np.load(path)
+        for ch_idx, char in enumerate(entry.characters):
+            if char in char_fingerprints and ch_idx < matrix.shape[0]:
+                char_fingerprints[char].append(matrix[ch_idx])
+
+    variances: dict[str, float] = {}
+    for char, vectors in char_fingerprints.items():
+        if len(vectors) < 2:
+            variances[char] = 1.0
+            continue
+        stacked = np.stack(vectors)
+        # Cosine distance between every pair; variance is the mean.
+        sims = stacked @ stacked.T
+        np.fill_diagonal(sims, 1.0)
+        # Lower similarity = more discriminative.
+        mean_sim = float(sims[np.triu_indices_from(sims, k=1)].mean())
+        # Squash mean similarity ∈ [0, 1] to a weight ∈ [0.5, 2.0]:
+        # highly similar chars (mean_sim ≈ 1) → 0.5, highly distinct
+        # chars (mean_sim ≈ 0) → 2.0.
+        weight = max(0.5, min(2.0, 2.0 - 1.5 * mean_sim))
+        variances[char] = float(weight)
+    return variances
 
 
 def load_index(index_dir: Path) -> FontFingerprintIndex:

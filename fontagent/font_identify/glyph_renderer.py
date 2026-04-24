@@ -20,22 +20,33 @@ DEFAULT_RENDER_SIZE = 256
 DEFAULT_NORMALIZED_SIZE = 64
 DEFAULT_PAD_RATIO = 0.08
 
-# Korean samples: a handful of common Hangul syllables that exercise
-# ㅇ/ㅁ/ㅅ bowls, vertical/horizontal finals, and complex jongseong.
+# Korean samples: initial consonants in basic syllables, plus
+# syllables that exercise ㅇ/ㅁ/ㅅ bowls, vertical/horizontal finals,
+# and complex jongseong stacks. Extra shapes ("꾼", "응", "뷔", "칡")
+# give the index a fuller distribution of shape classes so per-char
+# matching has meaningful discrimination during query time.
 DEFAULT_INDEX_SAMPLES_KO = (
     "가", "나", "다", "라", "마",
     "바", "사", "아", "자", "차",
     "카", "타", "파", "하",
     "강", "글", "꽃", "밝", "읽",
     "를", "은", "이", "요", "의",
+    "응", "꾼", "뷔", "칡", "봄",
+    "한", "국", "서", "예", "체",
 )
 
-# Latin samples: lowercase & uppercase forms with distinctive curves
-# and stems, plus digits for display fonts.
+# Latin samples: a wide mix of uppercase/lowercase and digits biased
+# toward letters that vary the most across font families. "g", "Q",
+# "R", "a" tend to be the most discriminative at small resolutions;
+# "W", "V", "T", "I" help with Latin-vs.-CJK disambiguation because
+# CJK fonts render Latin as secondary glyphs that rarely match a
+# Latin-native face pixel-for-pixel.
 DEFAULT_INDEX_SAMPLES_EN = (
-    "A", "B", "C", "D", "E", "G", "M", "Q", "R", "S",
-    "a", "b", "e", "g", "k", "n", "o", "r", "s", "t",
-    "0", "1", "2", "5", "7", "8", "9",
+    "A", "B", "C", "D", "E", "G", "H", "I", "M", "N",
+    "O", "Q", "R", "S", "T", "V", "W", "Y",
+    "a", "b", "c", "e", "f", "g", "i", "j", "k", "l",
+    "m", "n", "o", "p", "r", "s", "t", "x", "y", "z",
+    "0", "1", "2", "3", "5", "7", "8", "9",
 )
 
 

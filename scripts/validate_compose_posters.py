@@ -171,6 +171,90 @@ CASES: list[PosterCase] = [
                    ["sans", "gothic"], "ko"),
         ],
     ),
+    PosterCase(
+        name="09-mono-code",
+        description="Pure monospace code block",
+        canvas=(1200, 500),
+        regions=[
+            Region("DEBUG LOG 2024", "dejavu-mono", 72, (80, 80), "title",
+                   ["mono", "code", "tech"], "en"),
+            Region("print('hello')", "dejavu-mono", 48, (80, 260), "body",
+                   ["mono", "code"], "en"),
+        ],
+    ),
+    PosterCase(
+        name="10-tiny-body",
+        description="Very small body text stresses detection",
+        canvas=(1000, 400),
+        regions=[
+            Region("대한민국", "nanum-gothic", 120, (80, 80), "title",
+                   ["sans", "gothic"], "ko"),
+            Region("작은 글씨도 읽을 수 있어야 합니다", "nanum-myeongjo", 24, (80, 280), "body",
+                   ["serif", "myeongjo"], "ko"),
+        ],
+    ),
+    PosterCase(
+        name="11-huge-display",
+        description="Extreme size — single giant word",
+        canvas=(1400, 500),
+        regions=[
+            Region("COSMOS", "black-han-sans", 260, (80, 80), "title",
+                   ["display", "heavy", "bold"], "en"),
+        ],
+    ),
+    PosterCase(
+        name="12-script-korean",
+        description="Korean brush calligraphy with explicit hint",
+        canvas=(1000, 500),
+        regions=[
+            Region("서예", "gugi", 200, (80, 80), "title",
+                   ["brush", "calligraphy", "display"], "ko"),
+        ],
+    ),
+    PosterCase(
+        name="13-mixed-languages",
+        description="Single region mixing ko + en",
+        canvas=(1200, 400),
+        regions=[
+            Region("Hello 한국", "noto-sans-kr", 96, (80, 100), "title",
+                   ["sans", "gothic", "bilingual"], "ko"),
+        ],
+    ),
+    PosterCase(
+        name="14-three-role-system",
+        description="Full title/subtitle/body system in consistent Myeongjo",
+        canvas=(1200, 900),
+        regions=[
+            Region("AUTUMN", "nanum-myeongjo", 144, (80, 80), "title",
+                   ["serif", "myeongjo", "editorial"], "en"),
+            Region("가을의 편지", "nanum-myeongjo", 72, (80, 320), "subtitle",
+                   ["serif", "myeongjo", "soft"], "ko"),
+            Region("조용히 스며드는 계절의 감각", "nanum-myeongjo", 36, (80, 520), "body",
+                   ["serif", "myeongjo"], "ko"),
+        ],
+    ),
+    PosterCase(
+        name="15-heavy-weight-contrast",
+        description="Heavy display title + thin body",
+        canvas=(1200, 700),
+        regions=[
+            Region("THICK", "black-han-sans", 200, (80, 80), "title",
+                   ["display", "heavy", "bold"], "en"),
+            Region("가벼운 본문", "nanum-pen", 42, (80, 400), "body",
+                   ["handwriting", "pen", "casual"], "ko"),
+        ],
+    ),
+    PosterCase(
+        name="16-rounded-display",
+        description="Round friendly display pair",
+        canvas=(1000, 600),
+        regions=[
+            Region("WELCOME", "jua", 120, (80, 80), "title",
+                   ["display", "round", "friendly"], "en"),
+            Region("환영합니다", "jua", 72, (80, 300), "subtitle",
+                   ["display", "round", "friendly"], "ko"),
+        ],
+    ),
 ]
 
 
