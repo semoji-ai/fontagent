@@ -23,3 +23,6 @@ fontagent-mcp = "fontagent.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["fontagent*"]
+
+[tool.setuptools.package-data]
+fontagent = ["seed/assets/**/*"]

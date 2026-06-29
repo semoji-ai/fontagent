@@ -13,9 +13,21 @@
       "video_use_allowed": true,
       "web_embedding_allowed": true,
       "redistribution_allowed": false,
-      "languages": ["ko", "en"],
-      "tags": ["modern", "clean", "ui", "subtitle"],
-      "recommended_for": ["subtitle", "body", "ui"],
+      "languages": [
+        "ko",
+        "en"
+      ],
+      "tags": [
+        "modern",
+        "clean",
+        "ui",
+        "subtitle"
+      ],
+      "recommended_for": [
+        "subtitle",
+        "body",
+        "ui"
+      ],
       "preview_text_ko": "지금 이 변화가 시장을 바꾸고 있습니다",
       "preview_text_en": "Clean Korean UI Typography",
       "download_type": "manual_only",
@@ -36,9 +48,21 @@
       "video_use_allowed": true,
       "web_embedding_allowed": true,
       "redistribution_allowed": false,
-      "languages": ["ko", "en"],
-      "tags": ["neutral", "modern", "subtitle", "developer"],
-      "recommended_for": ["subtitle", "body", "coding"],
+      "languages": [
+        "ko",
+        "en"
+      ],
+      "tags": [
+        "neutral",
+        "modern",
+        "subtitle",
+        "developer"
+      ],
+      "recommended_for": [
+        "subtitle",
+        "body",
+        "coding"
+      ],
       "preview_text_ko": "역사는 반복되지 않지만 운율은 닮는다",
       "preview_text_en": "Developer Friendly Sans",
       "download_type": "manual_only",
@@ -59,9 +83,19 @@
       "video_use_allowed": true,
       "web_embedding_allowed": true,
       "redistribution_allowed": false,
-      "languages": ["ko"],
-      "tags": ["editorial", "serif", "documentary", "title"],
-      "recommended_for": ["title", "documentary"],
+      "languages": [
+        "ko"
+      ],
+      "tags": [
+        "editorial",
+        "serif",
+        "documentary",
+        "title"
+      ],
+      "recommended_for": [
+        "title",
+        "documentary"
+      ],
       "preview_text_ko": "왕조의 붕괴는 조용히 시작되었다",
       "preview_text_en": "Editorial Serif Feel",
       "download_type": "manual_only",
@@ -82,9 +116,21 @@
       "video_use_allowed": true,
       "web_embedding_allowed": true,
       "redistribution_allowed": true,
-      "languages": ["ko", "en"],
-      "tags": ["neutral", "subtitle", "body", "web"],
-      "recommended_for": ["subtitle", "body", "web"],
+      "languages": [
+        "ko",
+        "en"
+      ],
+      "tags": [
+        "neutral",
+        "subtitle",
+        "body",
+        "web"
+      ],
+      "recommended_for": [
+        "subtitle",
+        "body",
+        "web"
+      ],
       "preview_text_ko": "가독성이 중요한 자막과 본문에 적합합니다",
       "preview_text_en": "Readable subtitle and body font",
       "download_type": "manual_only",
@@ -105,16 +151,169 @@
       "video_use_allowed": true,
       "web_embedding_allowed": true,
       "redistribution_allowed": true,
-      "languages": ["ko", "en"],
-      "tags": ["serif", "gentle", "title", "editorial"],
-      "recommended_for": ["title", "editorial", "documentary"],
+      "languages": [
+        "ko",
+        "en"
+      ],
+      "tags": [
+        "serif",
+        "gentle",
+        "title",
+        "editorial"
+      ],
+      "recommended_for": [
+        "title",
+        "editorial",
+        "documentary"
+      ],
       "preview_text_ko": "한 시대의 균열은 문장 속에서 먼저 드러난다",
       "preview_text_en": "Gentle Korean serif",
       "download_type": "manual_only",
       "download_url": "",
       "format": "zip",
       "variable_font": false
+    },
+    {
+      "font_id": "bm-yeonsung-otf",
+      "family": "BM YEONSUNG OTF",
+      "slug": "bm-yeonsung-otf",
+      "source_site": "threads_drive_bundle",
+      "source_page_url": "https://www.threads.com/@mood_dining/post/DaJyhn6CQtn",
+      "homepage_url": "https://drive.google.com/drive/folders/1AS4TNQZPDF5fAllMh2VSfEnFWXzHOnzL",
+      "license_id": "needs-verification",
+      "license_summary": "원문 게시자의 저작권 문제 없음 주장만 확인됨. 상업 이용/웹 임베딩/재배포는 공식 라이선스 확인 전까지 보류.",
+      "commercial_use_allowed": false,
+      "video_use_allowed": false,
+      "web_embedding_allowed": false,
+      "redistribution_allowed": false,
+      "languages": [
+        "ko"
+      ],
+      "tags": [
+        "handwriting",
+        "friendly",
+        "menu",
+        "display",
+        "korean"
+      ],
+      "recommended_for": [
+        "title",
+        "menu",
+        "promotional_image"
+      ],
+      "preview_text_ko": "오늘의 추천 메뉴를 소개합니다",
+      "preview_text_en": "Korean Menu Display",
+      "download_type": "manual_only",
+      "download_url": "fontagent/seed/assets/ai-font-package-2026-06-30/BMYEONSUNG.otf",
+      "download_source": "bundled_repo_asset",
+      "format": "otf",
+      "variable_font": false
+    },
+    {
+      "font_id": "bm-yeonsung-ttf",
+      "family": "BM YEONSUNG",
+      "slug": "bm-yeonsung-ttf",
+      "source_site": "threads_drive_bundle",
+      "source_page_url": "https://www.threads.com/@mood_dining/post/DaJyhn6CQtn",
+      "homepage_url": "https://drive.google.com/drive/folders/1AS4TNQZPDF5fAllMh2VSfEnFWXzHOnzL",
+      "license_id": "needs-verification",
+      "license_summary": "원문 게시자의 저작권 문제 없음 주장만 확인됨. 상업 이용/웹 임베딩/재배포는 공식 라이선스 확인 전까지 보류.",
+      "commercial_use_allowed": false,
+      "video_use_allowed": false,
+      "web_embedding_allowed": false,
+      "redistribution_allowed": false,
+      "languages": [
+        "ko"
+      ],
+      "tags": [
+        "handwriting",
+        "friendly",
+        "menu",
+        "display",
+        "korean"
+      ],
+      "recommended_for": [
+        "title",
+        "menu",
+        "promotional_image"
+      ],
+      "preview_text_ko": "오늘의 추천 메뉴를 소개합니다",
+      "preview_text_en": "Korean Menu Display",
+      "download_type": "manual_only",
+      "download_url": "fontagent/seed/assets/ai-font-package-2026-06-30/BMYEONSUNG.ttf",
+      "download_source": "bundled_repo_asset",
+      "format": "ttf",
+      "variable_font": false
+    },
+    {
+      "font_id": "bokeh-otf",
+      "family": "BOKEH",
+      "slug": "bokeh-otf",
+      "source_site": "threads_drive_bundle",
+      "source_page_url": "https://www.threads.com/@mood_dining/post/DaJyhn6CQtn",
+      "homepage_url": "https://drive.google.com/drive/folders/1AS4TNQZPDF5fAllMh2VSfEnFWXzHOnzL",
+      "license_id": "needs-verification",
+      "license_summary": "폰트 내부 copyright는 greenegg 표기. 상업 이용/웹 임베딩/재배포는 공식 라이선스 확인 전까지 보류.",
+      "commercial_use_allowed": false,
+      "video_use_allowed": false,
+      "web_embedding_allowed": false,
+      "redistribution_allowed": false,
+      "languages": [
+        "en"
+      ],
+      "tags": [
+        "display",
+        "decorative",
+        "menu",
+        "headline"
+      ],
+      "recommended_for": [
+        "title",
+        "menu",
+        "promotional_image"
+      ],
+      "preview_text_ko": "시선을 끄는 메뉴판",
+      "preview_text_en": "Fresh Menu Specials",
+      "download_type": "manual_only",
+      "download_url": "fontagent/seed/assets/ai-font-package-2026-06-30/BOKEH.otf",
+      "download_source": "bundled_repo_asset",
+      "format": "otf",
+      "variable_font": false
+    },
+    {
+      "font_id": "bokeh-ttf",
+      "family": "BOKEH",
+      "slug": "bokeh-ttf",
+      "source_site": "threads_drive_bundle",
+      "source_page_url": "https://www.threads.com/@mood_dining/post/DaJyhn6CQtn",
+      "homepage_url": "https://drive.google.com/drive/folders/1AS4TNQZPDF5fAllMh2VSfEnFWXzHOnzL",
+      "license_id": "needs-verification",
+      "license_summary": "폰트 내부 copyright는 greenegg 표기. 상업 이용/웹 임베딩/재배포는 공식 라이선스 확인 전까지 보류.",
+      "commercial_use_allowed": false,
+      "video_use_allowed": false,
+      "web_embedding_allowed": false,
+      "redistribution_allowed": false,
+      "languages": [
+        "en"
+      ],
+      "tags": [
+        "display",
+        "decorative",
+        "menu",
+        "headline"
+      ],
+      "recommended_for": [
+        "title",
+        "menu",
+        "promotional_image"
+      ],
+      "preview_text_ko": "시선을 끄는 메뉴판",
+      "preview_text_en": "Fresh Menu Specials",
+      "download_type": "manual_only",
+      "download_url": "fontagent/seed/assets/ai-font-package-2026-06-30/BOKEH.ttf",
+      "download_source": "bundled_repo_asset",
+      "format": "ttf",
+      "variable_font": false
     }
   ]
 }
-
